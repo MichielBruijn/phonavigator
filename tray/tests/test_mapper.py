@@ -36,6 +36,7 @@ class MapperTest(unittest.TestCase):
     def setUp(self):
         self.cfg = copy.deepcopy(config.DEFAULTS)
         self.cfg["auto_recenter_twist"] = False
+        self.cfg["speed"] = 1.0
         # Independent of the shipped defaults: one plain axis per movement.
         for name, target in (("pitch", "RX"), ("roll", "RY"), ("twist", "RZ")):
             self.cfg["inputs"][name].update(target=target, invert=False, deadzone=3.0, max=20.0)
