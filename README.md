@@ -1,48 +1,58 @@
 # Phonavigator
 
-Een telefoon als 3D-muis voor arme mensen: telefoon rechtop op de laadpoortkant op het bureau,
-in je hand. **Kantelen en draaien = model draaien** (rate-besturing, zoals een SpaceMouse);
-scrollwiel blijft gewoon zoomen. Telefoon plat neerleggen = pauze. Scherm mag uit.
+A poor man's 3D mouse: your phone, standing upright on its charging-port edge on the desk, in
+your hand. **Tilt and twist to rotate the model** (rate control, like a SpaceMouse); the scroll
+wheel keeps zooming. Lay the phone down to pause, double-tap it on the desk to make the current
+position neutral. The screen may be off.
 
 ```
-Android-app ──BLE GATT──▶ tray-app ──uinput──▶ spacenavd ──▶ FreeCAD / Blender / …
-(quaternion, 50 Hz)       (kalibratie, deadzone,
-                           curve, asmapping)
+Android app ──BLE GATT──▶ tray app ──uinput──▶ spacenavd ──▶ FreeCAD / Blender / TopSolid (Wine) / …
+(quaternion, 50 Hz)       (calibration, deadzone,
+                           curve, axis mapping, taps)
 ```
 
-## Onderdelen
+## Parts
 
-- `android/` — Kotlin-app, alleen platform-API's. Foreground-service leest
-  `GAME_ROTATION_VECTOR` (gyro + accelerometer, geen magnetometer) en stuurt de quaternion als
-  BLE-notify. Bewust dom: alle logica zit in de tray.
-- `tray/` — Python + PySide6 + bleak (alle drie cross-platform). Doet kalibratie, deadzone,
-  responscurve, as-toewijzing en drift-correctie, en schrijft naar een uitvoer-backend.
-  Backends staan in `tray/phonavigator/outputs/`; nu alleen Linux (virtuele SpaceMouse Compact
-  via uinput, die spacenavd vanzelf oppakt).
-- `PROTOCOL.md` — het BLE-protocol, voor een eventuele iOS-zender.
+- `android/` — Kotlin app, platform APIs only. A foreground service reads
+  `GAME_ROTATION_VECTOR` (gyro + accelerometer, no magnetometer) and the accelerometer peak, and
+  sends them as BLE notifications. Deliberately dumb: all logic lives in the tray.
+- `tray/` — Python + PySide6 + bleak (all three cross-platform). Calibration, deadzone, response
+  curve, axis mapping, drift correction and tap detection, writing to an output backend.
+  Backends live in `tray/phonavigator/outputs/`; for now only Linux (a virtual SpaceMouse Compact
+  via uinput, which spacenavd picks up by itself).
+- `PROTOCOL.md` — the BLE protocol, for e.g. an iOS sender.
 
-## Installeren
+## Install
 
-**Telefoon:** APK installeren (alleen "onbekende bronnen toestaan", geen developer options),
-openen, *Starten*, en eenmalig *Accubeperking uitzetten*.
+**Phone:** install the APK (only "allow unknown apps" is needed, no developer options; Play
+Protect may want *Install anyway*), open it, *Start*, and once *Disable battery optimization*.
 
-**Ubuntu:** `./install-linux.sh` (pakketten, udev-regel voor `/dev/uinput`, starter en
-autostart), daarna `phonavigator --settings`. spacenavd moet draaien.
+**Ubuntu:** `./install-linux.sh` (packages, udev rule for `/dev/uinput`, BlueZ setting,
+launcher and autostart), then `phonavigator --settings`.
 
-## Gebruik
+If the phone is also paired with the computer over classic Bluetooth, BlueZ would connect over
+BR/EDR, where the service is missing. The tray then asks BlueZ for LE (`PreferredBearer`), which
+needs `Experimental = true` in `/etc/bluetooth/main.conf`; the install script sets it (with a
+backup) and restarts Bluetooth.
 
-1. Telefoon rechtop in de hand, tray-app maakt zelf verbinding.
-2. *Nulstand kalibreren*: 2 s later wordt de huidige stand de nul.
-3. Per beweging instelbaar: doel-as, omdraaien, deadzone, hoek voor vol gas, curve.
+## Use
 
-Draaien om de staande as heeft geen absolute referentie: die nul wordt bij elke keer oppakken
-opnieuw gezet en schuift binnen de deadzone langzaam mee om drift weg te werken.
+1. Hold the phone upright; the tray connects by itself.
+2. *Calibrate neutral position* (tray menu or settings), or double-tap the phone on the desk.
+3. Per movement: target axis, invert, deadzone, angle for full speed, curve. Changes apply
+   immediately.
 
-## Bouwen
+The defaults assume the phone in the left hand with the screen facing right, and a Z-up CAD
+program: sideways tilt rotates about X, forward/back tilt about Y.
+
+Twisting about the vertical axis has no absolute reference: its zero is reset every time the
+phone is picked up and slowly follows the phone inside the deadzone to remove drift.
+
+## Build
 
 ```sh
 cd android && JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew assembleRelease
 cd tray && python3 -m unittest discover -s tests -t .
 ```
 
-Release-signing gebruikt `~/.android-keystores/phonavigator-release.jks` als die bestaat.
+Release signing uses `~/.android-keystores/phonavigator-release.jks` when it exists.

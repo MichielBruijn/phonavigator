@@ -1,7 +1,7 @@
-"""BLE-verbinding met de telefoon (bleak: Linux, Windows en macOS).
+"""BLE link to the phone (bleak: Linux, Windows and macOS).
 
-Draait een eigen asyncio-loop in een thread; het nieuwste pakket wordt via
-on_sample doorgegeven, statuswijzigingen via de Qt-signal `status`.
+Runs its own asyncio loop in a thread; every packet is passed to on_sample,
+status changes go out through the Qt signal `status`.
 """
 
 import asyncio
@@ -33,7 +33,7 @@ class BleLink(QObject):
             self._loop.call_soon_threadsafe(self._stop.set)
 
     def rescan(self):
-        """Wachtpauze afbreken en meteen zoeken."""
+        """Cut the wait short and scan right away."""
         if self._loop and self._wake:
             self._loop.call_soon_threadsafe(self._wake.set)
 
@@ -49,14 +49,14 @@ class BleLink(QObject):
             found = False
             try:
                 found = await self._session()
-            except Exception as ex:  # bleak/BlueZ gooit van alles; gewoon opnieuw proberen
-                self.status.emit(f"Fout: {ex}")
+            except Exception as ex:  # bleak/BlueZ raise all sorts of things; just retry
+                self.status.emit(f"Error: {ex}")
             self.connected.emit(False)
-            # Continu scannen laat BT-muizen haperen: tussen vergeefse scans steeds langer wachten.
+            # Continuous scanning makes Bluetooth mice stutter: back off between fruitless scans.
             idle = 0 if found else idle + 1
             pause = 2 if found else min(30, 5 * idle)
             if not found:
-                self.status.emit(f"Telefoon niet gevonden, opnieuw over {pause} s")
+                self.status.emit(f"Phone not found, retrying in {pause} s")
             self._wake.clear()
             try:
                 await asyncio.wait_for(self._wake.wait(), pause)
@@ -64,8 +64,8 @@ class BleLink(QObject):
                 pass
 
     async def _session(self):
-        """True als er een telefoon gevonden is (ook als de verbinding daarna wegviel)."""
-        self.status.emit("Zoeken naar telefoon…")
+        """True if a phone was found (even if the connection dropped afterwards)."""
+        self.status.emit("Looking for phone…")
         dev = await BleakScanner.find_device_by_filter(
             lambda d, ad: protocol.advertises(ad.service_uuids, ad.service_data),
             timeout=10,
@@ -73,23 +73,23 @@ class BleLink(QObject):
         if dev is None:
             return False
         warning = await bluez.prefer_le(dev)
-        self.status.emit(f"Verbinden met {dev.name or dev.address}…")
+        self.status.emit(f"Connecting to {dev.name or dev.address}…")
         gone = asyncio.Event()
         async with BleakClient(dev, disconnected_callback=lambda _c: gone.set()) as client:
             if client.services.get_characteristic(protocol.ORIENTATION_UUID) is None:
                 raise RuntimeError(warning or "Phonavigator service not found on phone")
             await client.start_notify(protocol.ORIENTATION_UUID, self._notify)
-            self.status.emit(f"Verbonden met {dev.name or dev.address}")
+            self.status.emit(f"Connected to {dev.name or dev.address}")
             self.connected.emit(True)
             stop = asyncio.ensure_future(self._stop.wait())
             lost = asyncio.ensure_future(gone.wait())
             await asyncio.wait({stop, lost}, return_when=asyncio.FIRST_COMPLETED)
             stop.cancel()
             lost.cancel()
-        self.status.emit("Verbinding verbroken")
+        self.status.emit("Connection lost")
         return True
 
     def _notify(self, _char, data: bytearray):
         pkt = protocol.parse(bytes(data))
         if pkt:
-            self._on_sample(pkt[1], time.monotonic())
+            self._on_sample(pkt[1], pkt[3], time.monotonic())

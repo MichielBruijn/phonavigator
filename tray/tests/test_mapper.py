@@ -4,6 +4,7 @@ import unittest
 
 from phonavigator import config
 from phonavigator.mapper import FULL_SCALE, Mapper
+from phonavigator.tap import TapDetector
 
 
 def qaxis(axis, deg):
@@ -21,7 +22,7 @@ def qmul(a, b):
             aw * bw - ax * bx - ay * by - az * bz)
 
 
-# Rechtop, scherm naar de gebruiker: device-Y = wereld-omhoog.
+# Upright: device Y = world up.
 UPRIGHT = qaxis((1, 0, 0), 90)
 
 
@@ -35,6 +36,9 @@ class MapperTest(unittest.TestCase):
     def setUp(self):
         self.cfg = copy.deepcopy(config.DEFAULTS)
         self.cfg["auto_recenter_twist"] = False
+        # Independent of the shipped defaults: one plain axis per movement.
+        for name, target in (("pitch", "RX"), ("roll", "RY"), ("twist", "RZ")):
+            self.cfg["inputs"][name].update(target=target, invert=False, deadzone=3.0, max=20.0)
         self.m = Mapper(self.cfg)
         self.t = 0.0
 
@@ -45,12 +49,12 @@ class MapperTest(unittest.TestCase):
             v = self.m.compute(self.t, 0.016)
         return dict(zip(("TX", "TY", "TZ", "RX", "RY", "RZ"), v))
 
-    def test_rust_is_nul(self):
+    def test_rest_is_zero(self):
         out = self.step(pose(base_yaw=37), 5)
         self.assertEqual(self.m.state, "active")
         self.assertTrue(all(v == 0 for v in out.values()))
 
-    def test_assen_gescheiden(self):
+    def test_axes_independent(self):
         self.step(pose(base_yaw=10))
         out = self.step(pose(pitch=15, base_yaw=10))
         self.assertNotEqual(out["RX"], 0)
@@ -62,12 +66,12 @@ class MapperTest(unittest.TestCase):
         self.assertNotEqual(out["RZ"], 0)
         self.assertEqual((out["RX"], out["RY"]), (0, 0))
 
-    def test_vol_gas_en_teken(self):
+    def test_full_scale_and_sign(self):
         self.step(pose())
         self.assertEqual(self.step(pose(pitch=30))["RX"], -self.step(pose(pitch=-30))["RX"])
         self.assertEqual(abs(self.step(pose(pitch=30))["RX"]), FULL_SCALE)
 
-    def test_omdraaien_en_doelas(self):
+    def test_invert_and_target(self):
         self.step(pose())
         a = self.step(pose(yaw=15))["RZ"]
         self.cfg["inputs"]["twist"]["invert"] = True
@@ -76,31 +80,68 @@ class MapperTest(unittest.TestCase):
         self.assertEqual(out["TX"], -a)
         self.assertEqual(out["RZ"], 0)
 
-    def test_neerleggen_pauzeert_en_reset_twist(self):
+    def test_lying_down_pauses_and_resets_twist(self):
         self.step(pose())
-        self.step(pose(pitch=-90))  # plat op de rug
+        self.step(pose(pitch=-90))  # flat on its back
         self.assertEqual(self.m.state, "flat")
-        # Opgepakt met 60° andere richting: die richting is de nieuwe nul.
+        # Picked up facing 60° elsewhere: that direction is the new zero.
         out = self.step(pose(base_yaw=60))
         self.assertEqual(self.m.state, "active")
         self.assertEqual(out["RZ"], 0)
 
-    def test_kalibratie(self):
+    def test_calibration(self):
         self.step(pose(pitch=10))
         self.assertTrue(self.m.calibrate())
         self.assertEqual(self.step(pose(pitch=10))["RX"], 0)
 
-    def test_geen_data(self):
+    def test_no_data(self):
         self.step(pose())
         self.t += 1.0
         self.assertEqual(self.m.compute(self.t, 0.016), [0] * 6)
         self.assertEqual(self.m.state, "nodata")
 
-    def test_drift_correctie(self):
+    def test_drift_correction(self):
         self.cfg["auto_recenter_twist"] = True
         self.step(pose())
-        self.step(pose(yaw=3), 600)  # 3° drift, binnen deadzone van 4°
+        self.step(pose(yaw=2), 600)  # 2° drift, inside the 3° deadzone
         self.assertLess(abs(self.m.angles["twist"]), 0.1)
+
+
+class TapTest(unittest.TestCase):
+    def setUp(self):
+        self.cfg = copy.deepcopy(config.DEFAULTS)
+        self.cfg["tap_threshold"] = 15.0
+        self.taps = TapDetector(self.cfg)
+
+    def test_double_tap(self):
+        self.cfg["tap_calibrate"] = "double"
+        self.taps.feed(30, 10.0)
+        self.taps.feed(30, 10.02)  # same knock still ringing
+        self.assertFalse(self.taps.due(11.0))
+        self.taps.feed(30, 10.3)
+        self.assertFalse(self.taps.due(10.4))
+        self.assertTrue(self.taps.due(10.7))
+        self.assertFalse(self.taps.due(10.8))  # only once
+
+    def test_taps_too_far_apart(self):
+        self.cfg["tap_calibrate"] = "double"
+        self.taps.feed(30, 10.0)
+        self.taps.feed(30, 11.0)
+        self.assertFalse(self.taps.due(12.0))
+
+    def test_single_tap_and_threshold(self):
+        self.cfg["tap_calibrate"] = "single"
+        self.taps.feed(10, 10.0)  # below threshold: hand movement
+        self.assertFalse(self.taps.due(11.0))
+        self.taps.feed(20, 12.0)
+        self.assertTrue(self.taps.due(12.3))
+        self.assertGreater(self.taps.mute_until, 12.0)
+
+    def test_off(self):
+        self.cfg["tap_calibrate"] = "off"
+        self.taps.feed(50, 10.0)
+        self.taps.feed(50, 10.3)
+        self.assertFalse(self.taps.due(11.0))
 
 
 if __name__ == "__main__":

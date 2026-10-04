@@ -1,6 +1,6 @@
-"""Uitvoer-backends: hoe de zes assen bij de 3D-applicatie komen.
+"""Output backends: how the six axes reach the 3D application.
 
-Per platform een eigen backend; de rest van de app is platformonafhankelijk.
+One backend per platform; the rest of the app is platform independent.
 """
 
 import sys
@@ -14,7 +14,7 @@ class Backend:
     name = "?"
 
     def write(self, values):
-        """values: zes ints (TX TY TZ RX RY RZ) in ±350, ~60x per seconde."""
+        """values: six ints (TX TY TZ RX RY RZ) within ±350, ~60 times per second."""
         raise NotImplementedError
 
     def close(self):
@@ -26,4 +26,4 @@ def create() -> Backend:
         from .linux_uinput import UinputBackend
 
         return UinputBackend()
-    raise BackendError(f"Nog geen uitvoer-backend voor {sys.platform}")
+    raise BackendError(f"No output backend for {sys.platform} yet")

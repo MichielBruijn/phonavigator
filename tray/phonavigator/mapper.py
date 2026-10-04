@@ -1,15 +1,15 @@
-"""Van telefoon-oriëntatie naar SpaceMouse-uitslag (rate-besturing).
+"""From phone orientation to SpaceMouse deflection (rate control).
 
-Telefoon staat rechtop op de laadpoortkant: Android-device-Y wijst omhoog,
-Z wijst uit het scherm naar de gebruiker, X naar rechts.
+The phone stands upright on its charging-port edge: Android device Y points up,
+Z points out of the screen, X to the right of the screen.
 
-- pitch: kantelen naar je toe / van je af (om device-X)
-- roll:  opzij kantelen (om device-Z)
-- twist: draaien om de staande as
+- pitch: tilt forward/back as seen from the phone (about device X)
+- roll:  tilt sideways as seen from the phone (about device Z)
+- twist: turn about the vertical axis
 
-Pitch en roll komen uit de zwaartekracht en driften niet. Twist heeft geen
-referentie (geen magnetometer), dus de nulstand daarvan wordt bij elke keer
-oppakken opnieuw gezet en schuift binnen de deadzone langzaam mee.
+Pitch and roll come from gravity and do not drift. Twist has no reference (no
+magnetometer), so its zero is reset every time the phone is picked up and slowly
+follows the phone while it rests inside the deadzone.
 """
 
 import math
@@ -17,8 +17,8 @@ import math
 from .config import INPUTS
 
 AXES = ("TX", "TY", "TZ", "RX", "RY", "RZ")
-FULL_SCALE = 350  # bereik van een echte SpaceMouse
-STALE_AFTER = 0.3  # s zonder data = stilstaan
+FULL_SCALE = 350  # range of a real SpaceMouse
+STALE_AFTER = 0.3  # s without data = stand still
 RECENTER_TAU = 2.0  # s
 
 
@@ -32,13 +32,13 @@ def _norm(v):
 
 
 def _up_and_heading(q):
-    """Up-vector in device-coördinaten en de kompasrichting van device-X (graden)."""
+    """Up vector in device coordinates and the heading of device X (degrees)."""
     x, y, z, w = q
-    # Rotatiematrix device -> wereld; rij 2 = wereld-omhoog uitgedrukt in device-coördinaten.
+    # Rotation matrix device -> world; row 2 = world up expressed in device coordinates.
     r00 = 1 - 2 * (y * y + z * z)
     r10 = 2 * (x * y + z * w)
     up = _norm([2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)])
-    # Device-X blijft horizontaal bij pitch én roll, dus zijn richting is een schone twist-maat.
+    # Device X stays horizontal under both pitch and roll, so its heading is a clean twist measure.
     heading = math.degrees(math.atan2(r10, r00))
     return up, heading
 
@@ -68,7 +68,7 @@ class Mapper:
         self.q_time = now
 
     def calibrate(self):
-        """Huidige stand wordt de nulstand. Geeft False als er nog geen data is."""
+        """Make the current position neutral. False if there is no data yet."""
         if self.q is None:
             return False
         up, heading = _up_and_heading(self.q)
@@ -78,7 +78,7 @@ class Mapper:
         return True
 
     def compute(self, now, dt):
-        """Zes assen, ints in ±FULL_SCALE."""
+        """Six axes, ints within ±FULL_SCALE."""
         out = dict.fromkeys(AXES, 0.0)
         if self.q is None or now - self.q_time > STALE_AFTER:
             self.state = "nodata"
@@ -90,7 +90,7 @@ class Mapper:
         tilt = _angle_between(up, up0)
         pause = self.cfg["pause_angle"]
 
-        # Plat neerleggen = pauze; weer oppakken = twist opnieuw op nul.
+        # Laying the phone down pauses; picking it up again re-zeroes twist.
         if self.upright and tilt > pause:
             self.upright = False
         elif not self.upright and tilt < pause * 0.6:

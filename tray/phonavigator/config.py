@@ -8,16 +8,21 @@ INPUTS = ("pitch", "roll", "twist")
 TARGETS = ("off", "TX", "TY", "TZ", "RX", "RY", "RZ")
 
 DEFAULTS = {
-    # Up-vector in telefooncoördinaten bij de nulstand; (0,1,0) = kaarsrecht.
+    # Up vector in phone coordinates at the neutral position; (0,1,0) = perfectly upright.
     "neutral_up": [0.0, 1.0, 0.0],
+    # Raw SpaceMouse axes. Tuned for the phone upright in the left hand, screen facing right:
+    # sideways tilt rotates the model about X, forward/back tilt about Y (Z-up CAD, e.g. TopSolid).
     "inputs": {
-        "pitch": {"target": "RX", "invert": False, "deadzone": 3.0, "max": 20.0, "expo": 1.6},
-        "roll": {"target": "RY", "invert": False, "deadzone": 3.0, "max": 20.0, "expo": 1.6},
-        "twist": {"target": "RZ", "invert": False, "deadzone": 4.0, "max": 25.0, "expo": 1.6},
+        "pitch": {"target": "RZ", "invert": True, "deadzone": 5.0, "max": 20.0, "expo": 1.6},
+        "roll": {"target": "RX", "invert": False, "deadzone": 5.0, "max": 20.0, "expo": 1.6},
+        "twist": {"target": "RY", "invert": True, "deadzone": 5.0, "max": 25.0, "expo": 1.6},
     },
     "speed": 1.0,
     "pause_angle": 50.0,
     "auto_recenter_twist": True,
+    # Tap the phone on the desk to make the current position neutral: "off" | "single" | "double"
+    "tap_calibrate": "double",
+    "tap_threshold": 15.0,  # m/s², high-pass peak
 }
 
 

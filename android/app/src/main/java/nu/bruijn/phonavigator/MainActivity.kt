@@ -35,9 +35,9 @@ class MainActivity : Activity() {
         }
         val help = TextView(this).apply {
             textSize = 14f
-            text = "Stand the phone upright on its charging-port edge and calibrate the " +
-                "neutral position in the tray app. Tilting and twisting rotate the model; " +
-                "laying the phone flat pauses. The screen may be off."
+            text = "Stand the phone upright on its charging-port edge. Tilting and twisting " +
+                "rotate the model; laying the phone flat pauses. Double-tap the phone on the " +
+                "desk to make the current position neutral. The screen may be off."
         }
         detailsView = TextView(this).apply { textSize = 14f }
         logView = TextView(this).apply {

@@ -1,7 +1,7 @@
-"""Virtuele 3Dconnexion-SpaceMouse via uinput; spacenavd pakt hem vanzelf op.
+"""Virtual 3Dconnexion SpaceMouse via uinput; spacenavd picks it up by itself.
 
-Doet zich voor als SpaceMouse Compact (256f:c635), zodat spacenavd dezelfde
-asconventie toepast als bij een echte en /etc/spnavrc gewoon blijft kloppen.
+Poses as a SpaceMouse Compact (256f:c635), so spacenavd applies the same axis
+convention as for a real one and /etc/spnavrc keeps meaning the same.
 """
 
 from evdev import AbsInfo, UInput, UInputError
@@ -25,14 +25,14 @@ class UinputBackend(Backend):
             self.ui = UInput(caps, name="Phonavigator", vendor=0x256F, product=0xC635,
                              version=1, bustype=e.BUS_USB)
         except (OSError, UInputError) as ex:
-            raise BackendError(f"Geen toegang tot /dev/uinput ({ex}); zie install-linux.sh") from ex
+            raise BackendError(f"No access to /dev/uinput ({ex}); see install-linux.sh") from ex
         self.last = [0] * 6
 
     def write(self, values):
         changed = False
         for i, (code, v) in enumerate(zip(_CODES, values)):
-            # De kernel slikt ABS-events met dezelfde waarde in, en spacenavd herhaalt
-            # standaard niet: een vastgehouden uitslag moet dus elke tick iets veranderen.
+            # The kernel drops ABS events that repeat the previous value and spacenavd does
+            # not repeat by default: a held deflection has to change a little every tick.
             if v != 0 and v == self.last[i]:
                 v += -1 if v > 1 else 1
             if v != self.last[i]:

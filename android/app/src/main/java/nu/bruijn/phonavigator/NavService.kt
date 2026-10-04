@@ -54,6 +54,7 @@ class NavService : Service(), SensorEventListener {
         private const val NOTIF_ID = 1
         const val ACTION_STOP = "nu.bruijn.phonavigator.STOP"
         private const val SAMPLE_US = 20_000 // 50 Hz
+        private const val ACCEL_US = 5_000 // 200 Hz, short taps need it
         private const val LOG_LINES = 12
 
         @Volatile var running = false
@@ -89,6 +90,7 @@ class NavService : Service(), SensorEventListener {
     private var gattServer: BluetoothGattServer? = null
     private var orientChar: BluetoothGattCharacteristic? = null
     private var usingMagnetometer = false
+    private val gravity = FloatArray(3)
 
     // "off" | "starting" | "on" | "failed: ..."
     @Volatile private var advState = "off"
@@ -100,7 +102,9 @@ class NavService : Service(), SensorEventListener {
     private val links = mutableSetOf<BluetoothDevice>()
     private var inFlight = 0
     private var inFlightSince = 0L
-    private var pending: ByteArray? = null
+    private var pending = false
+    private val quat = FloatArray(4)
+    private var peakAccel = 0f // m/s², kept until a packet is actually sent
     private var lastPacket = ByteArray(Protocol.PACKET_SIZE)
     private var seq = 0
 
@@ -163,26 +167,26 @@ class NavService : Service(), SensorEventListener {
         event("Sensor: ${sensor.name}")
         val thread = HandlerThread("sensor").apply { start() }
         sensorThread = thread
-        sensorManager.registerListener(this, sensor, SAMPLE_US, Handler(thread.looper))
+        val handler = Handler(thread.looper)
+        sensorManager.registerListener(this, sensor, SAMPLE_US, handler)
+        sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let {
+            sensorManager.registerListener(this, it, ACCEL_US, handler)
+        } ?: event("No accelerometer: tap to calibrate unavailable")
         return true
     }
 
     override fun onSensorChanged(event: SensorEvent) {
+        if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
+            onAccel(event.values)
+            return
+        }
         val v = event.values
         val x = v[0]; val y = v[1]; val z = v[2]
         val w = if (v.size >= 4) v[3] else sqrt((1f - x * x - y * y - z * z).coerceAtLeast(0f))
-        var flags = 0
-        if (usingMagnetometer) flags = flags or Protocol.FLAG_MAGNETOMETER
-
-        val pkt = ByteBuffer.allocate(Protocol.PACKET_SIZE).order(ByteOrder.LITTLE_ENDIAN)
-            .putShort((seq++ and 0xFFFF).toShort())
-            .putFloat(x).putFloat(y).putFloat(z).putFloat(w)
-            .put(flags.toByte())
-            .array()
 
         synchronized(lock) {
-            lastPacket = pkt
-            pending = pkt
+            quat[0] = x; quat[1] = y; quat[2] = z; quat[3] = w
+            pending = true
             // Safety net for a notification callback that never arrives.
             if (inFlight > 0 && SystemClock.elapsedRealtime() - inFlightSince > 500) inFlight = 0
             if (inFlight == 0) sendPendingLocked()
@@ -198,7 +202,32 @@ class NavService : Service(), SensorEventListener {
         }
     }
 
+    /** High-pass the accelerometer and keep the peak: a tap on the desk is a short, sharp spike. */
+    private fun onAccel(a: FloatArray) {
+        var sum = 0f
+        for (i in 0..2) {
+            gravity[i] += 0.05f * (a[i] - gravity[i])
+            val hp = a[i] - gravity[i]
+            sum += hp * hp
+        }
+        val mag = sqrt(sum)
+        synchronized(lock) { if (mag > peakAccel) peakAccel = mag }
+    }
+
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+
+    /** Call with [lock] held. */
+    private fun buildPacketLocked(): ByteArray {
+        var flags = 0
+        if (usingMagnetometer) flags = flags or Protocol.FLAG_MAGNETOMETER
+        val peak = (peakAccel / Protocol.PEAK_UNIT).toInt().coerceIn(0, 255)
+        return ByteBuffer.allocate(Protocol.PACKET_SIZE).order(ByteOrder.LITTLE_ENDIAN)
+            .putShort((seq++ and 0xFFFF).toShort())
+            .putFloat(quat[0]).putFloat(quat[1]).putFloat(quat[2]).putFloat(quat[3])
+            .put(flags.toByte())
+            .put(peak.toByte())
+            .array()
+    }
 
     // --- BLE ---
 
@@ -371,11 +400,14 @@ class NavService : Service(), SensorEventListener {
 
     /** Call with [lock] held. */
     private fun sendPendingLocked() {
-        val pkt = pending ?: return
+        if (!pending) return
         val server = gattServer ?: return
         val ch = orientChar ?: return
         if (subscribers.isEmpty()) return
-        pending = null
+        pending = false
+        val pkt = buildPacketLocked()
+        lastPacket = pkt
+        peakAccel = 0f
         var sent = 0
         for (dev in subscribers) {
             val ok = if (Build.VERSION.SDK_INT >= 33) {
@@ -452,7 +484,8 @@ object Protocol {
     val SERVICE_UUID: java.util.UUID = java.util.UUID.fromString("7f3a0001-5c1e-4b8e-9d2a-6e0f1c9b4a10")
     val ORIENTATION_UUID: java.util.UUID = java.util.UUID.fromString("7f3a0002-5c1e-4b8e-9d2a-6e0f1c9b4a10")
     val CCCD_UUID: java.util.UUID = java.util.UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
-    const val PACKET_SIZE = 19 // fits the default ATT MTU (20 bytes payload)
+    const val PACKET_SIZE = 20 // exactly the default ATT MTU payload
     const val FLAG_MAGNETOMETER = 0x01
-    const val VERSION: Byte = 1 // advertised as service data
+    const val PEAK_UNIT = 0.5f // m/s² per step of the peak byte
+    const val VERSION: Byte = 2 // advertised as service data
 }

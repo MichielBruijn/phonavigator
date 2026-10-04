@@ -13,25 +13,27 @@ from PySide6.QtWidgets import (
 from . import __version__, config, outputs
 from .ble import BleLink
 from .mapper import AXES, FULL_SCALE, Mapper
+from .tap import TapDetector
 
-TICK_MS = 16  # ~60 Hz naar spacenavd
+TICK_MS = 16  # ~60 Hz to spacenavd
 
 INPUT_LABELS = {
-    "pitch": "Kantelen voor/achter",
-    "roll": "Kantelen opzij",
-    "twist": "Draaien (staande as)",
+    "pitch": "Tilt forward/back",
+    "roll": "Tilt sideways",
+    "twist": "Twist (vertical axis)",
 }
 TARGET_LABELS = {
-    "off": "Uit",
-    "TX": "Schuiven X", "TY": "Schuiven Y", "TZ": "Schuiven Z",
-    "RX": "Draaien RX", "RY": "Draaien RY", "RZ": "Draaien RZ",
+    "off": "Off",
+    "TX": "Move X", "TY": "Move Y", "TZ": "Move Z",
+    "RX": "Rotate RX", "RY": "Rotate RY", "RZ": "Rotate RZ",
 }
+TAP_MODES = {"off": "Off", "single": "Single tap", "double": "Double tap"}
 STATE_COLORS = {"nodata": "#8a8f98", "flat": "#e0a030", "active": "#3cb371", "paused": "#e0a030"}
 STATE_TEXT = {
-    "nodata": "Geen data",
-    "flat": "Pauze (telefoon ligt)",
-    "active": "Actief",
-    "paused": "Gepauzeerd",
+    "nodata": "No data",
+    "flat": "Paused (phone lying down)",
+    "active": "Active",
+    "paused": "Paused",
 }
 
 
@@ -60,12 +62,14 @@ def make_icon(color: str) -> QIcon:
 
 
 class CenterBar(QWidget):
-    """Balk vanuit het midden; voor hoeken en asuitslag."""
+    """Bar growing from the middle (or from the left when one_sided); for angles and axis values."""
 
-    def __init__(self, span):
+    def __init__(self, span, one_sided=False):
         super().__init__()
         self.span = span
+        self.one_sided = one_sided
         self.value = 0.0
+        self.marker = None
         self.setMinimumSize(160, 14)
 
     def set(self, v):
@@ -77,14 +81,23 @@ class CenterBar(QWidget):
         p = QPainter(self)
         r = self.rect().adjusted(0, 2, -1, -2)
         p.fillRect(r, self.palette().base())
-        mid = r.center().x()
-        frac = max(-1.0, min(1.0, self.value / self.span))
-        w = int(frac * r.width() / 2)
-        bar = QRectF(min(mid, mid + w), r.top(), abs(w), r.height())
-        p.fillRect(bar, QColor("#3c8dde"))
+        if self.one_sided:
+            w = int(min(1.0, max(0.0, self.value / self.span)) * r.width())
+            p.fillRect(QRectF(r.left(), r.top(), w, r.height()), QColor("#3c8dde"))
+        else:
+            mid = r.center().x()
+            frac = max(-1.0, min(1.0, self.value / self.span))
+            w = int(frac * r.width() / 2)
+            p.fillRect(QRectF(min(mid, mid + w), r.top(), abs(w), r.height()), QColor("#3c8dde"))
         p.setPen(self.palette().mid().color())
         p.drawRect(r)
-        p.drawLine(mid, r.top(), mid, r.bottom())
+        if self.one_sided:
+            if self.marker is not None:
+                x = r.left() + int(min(1.0, self.marker / self.span) * r.width())
+                p.setPen(QPen(QColor("#d04040"), 2))
+                p.drawLine(x, r.top(), x, r.bottom())
+        else:
+            p.drawLine(r.center().x(), r.top(), r.center().x(), r.bottom())
 
 
 class SettingsWindow(QWidget):
@@ -99,10 +112,10 @@ class SettingsWindow(QWidget):
         self.status = QLabel()
         root.addWidget(self.status)
 
-        # Per telefoonbeweging: doel-as, richting, deadzone, max, curve
-        g = QGroupBox("Bewegingen")
+        # Per phone movement: target axis, direction, deadzone, full-speed angle, curve
+        g = QGroupBox("Movements")
         grid = QGridLayout(g)
-        heads = ["", "Live (°)", "Naar as", "Omdraaien", "Deadzone °", "Vol gas bij °", "Curve"]
+        heads = ["", "Live (°)", "Axis", "Invert", "Deadzone °", "Full speed at °", "Curve"]
         for c, h in enumerate(heads):
             grid.addWidget(QLabel(f"<b>{h}</b>"), 0, c)
         self.angle_bars = {}
@@ -138,10 +151,10 @@ class SettingsWindow(QWidget):
                 grid.addWidget(sb, row, col)
         root.addWidget(g)
 
-        # Algemeen
-        g = QGroupBox("Algemeen")
+        # General
+        g = QGroupBox("General")
         h = QHBoxLayout(g)
-        h.addWidget(QLabel("Snelheid"))
+        h.addWidget(QLabel("Speed"))
         speed = QDoubleSpinBox()
         speed.setRange(0.05, 1.0)
         speed.setSingleStep(0.05)
@@ -149,7 +162,7 @@ class SettingsWindow(QWidget):
         speed.valueChanged.connect(lambda v: self._set_global("speed", v))
         h.addWidget(speed)
         h.addSpacing(16)
-        h.addWidget(QLabel("Pauze vanaf °"))
+        h.addWidget(QLabel("Pause beyond °"))
         pause = QDoubleSpinBox()
         pause.setRange(20, 85)
         pause.setDecimals(0)
@@ -157,16 +170,42 @@ class SettingsWindow(QWidget):
         pause.valueChanged.connect(lambda v: self._set_global("pause_angle", v))
         h.addWidget(pause)
         h.addSpacing(16)
-        rec = QCheckBox("Draai-nulstand laten meeschuiven")
-        rec.setToolTip("Corrigeert drift van de draai-as zolang de telefoon in de deadzone staat")
+        rec = QCheckBox("Let twist zero follow")
+        rec.setToolTip("Corrects drift of the twist axis while the phone rests inside the deadzone")
         rec.setChecked(cfg["auto_recenter_twist"])
         rec.toggled.connect(lambda v: self._set_global("auto_recenter_twist", v))
         h.addWidget(rec)
         h.addStretch()
         root.addWidget(g)
 
-        # Uitvoer
-        g = QGroupBox("Uitvoer naar 3D-applicatie")
+        # Tap to calibrate
+        g = QGroupBox("Tap the phone on the desk to calibrate")
+        h = QHBoxLayout(g)
+        mode = QComboBox()
+        for k, label in TAP_MODES.items():
+            mode.addItem(label, k)
+        mode.setCurrentIndex(list(TAP_MODES).index(cfg["tap_calibrate"]))
+        mode.currentIndexChanged.connect(lambda _i: self._set_global("tap_calibrate", mode.currentData()))
+        h.addWidget(mode)
+        h.addSpacing(16)
+        h.addWidget(QLabel("Threshold m/s²"))
+        thr = QDoubleSpinBox()
+        thr.setRange(3, 120)
+        thr.setSingleStep(1)
+        thr.setDecimals(0)
+        thr.setValue(cfg["tap_threshold"])
+        thr.valueChanged.connect(self._set_threshold)
+        h.addWidget(thr)
+        h.addSpacing(16)
+        h.addWidget(QLabel("Peak"))
+        self.tap_bar = CenterBar(60, one_sided=True)
+        self.tap_bar.marker = cfg["tap_threshold"]
+        self.tap_bar.setToolTip("Peak acceleration; a tap must cross the red line")
+        h.addWidget(self.tap_bar, 1)
+        root.addWidget(g)
+
+        # Output
+        g = QGroupBox("Output to 3D application")
         grid = QGridLayout(g)
         self.out_bars = []
         for i, axis in enumerate(AXES):
@@ -177,12 +216,13 @@ class SettingsWindow(QWidget):
         root.addWidget(g)
 
         h = QHBoxLayout()
-        self.cal_btn = QPushButton("Nulstand kalibreren")
-        self.cal_btn.clicked.connect(ctl.calibrate_delayed)
-        h.addWidget(self.cal_btn)
+        cal = QPushButton("Calibrate neutral position")
+        cal.clicked.connect(ctl.calibrate)
+        h.addWidget(cal)
         h.addStretch()
         h.addWidget(QLabel(f"v{__version__}"))
         root.addLayout(h)
+        self._peak_hold = 0.0
 
     def _set(self, name, key, value):
         self.ctl.cfg["inputs"][name][key] = value
@@ -192,6 +232,11 @@ class SettingsWindow(QWidget):
         self.ctl.cfg[key] = value
         self.ctl.save_later()
 
+    def _set_threshold(self, v):
+        self._set_global("tap_threshold", v)
+        self.tap_bar.marker = v
+        self.tap_bar.update()
+
     def refresh(self, values):
         m = self.ctl.mapper
         for name, bar in self.angle_bars.items():
@@ -199,6 +244,9 @@ class SettingsWindow(QWidget):
             bar.setToolTip(f"{m.angles[name]:+.1f}°")
         for bar, v in zip(self.out_bars, values):
             bar.set(v)
+        # Hold the peak briefly so a tap is visible at all.
+        self._peak_hold = max(self.ctl.taps.take_peak(), self._peak_hold * 0.85)
+        self.tap_bar.set(self._peak_hold)
         self.status.setText(
             f"<b>{STATE_TEXT[self.ctl.state()]}</b> · {self.ctl.link_status} · {self.ctl.backend_status}")
 
@@ -208,22 +256,22 @@ class Controller:
         self.app = app
         self.cfg = config.load()
         self.mapper = Mapper(self.cfg)
+        self.taps = TapDetector(self.cfg)
         self.paused = False
-        self.link_status = "Starten…"
+        self.link_status = "Starting…"
         self.window = None
         self.values = [0] * 6
         self._sample = None
         self._sample_lock = threading.Lock()
         self._last_tick = time.monotonic()
         self._shown_state = None
-        self._cal_countdown = 0
 
         try:
             self.backend = outputs.create()
-            self.backend_status = f"uitvoer: {self.backend.name}"
+            self.backend_status = f"output: {self.backend.name}"
         except outputs.BackendError as ex:
             self.backend = None
-            self.backend_status = f"uitvoer: {ex}"
+            self.backend_status = f"output: {ex}"
 
         self.tray = QSystemTrayIcon(make_icon(STATE_COLORS["nodata"]))
         self.tray.setToolTip("Phonavigator")
@@ -231,14 +279,14 @@ class Controller:
         self.status_action = menu.addAction(self.link_status)
         self.status_action.setEnabled(False)
         menu.addSeparator()
-        self.pause_action = QAction("Pauze", menu, checkable=True)
+        self.pause_action = QAction("Pause", menu, checkable=True)
         self.pause_action.toggled.connect(self._set_paused)
         menu.addAction(self.pause_action)
-        menu.addAction("Nulstand kalibreren (over 2 s)", self.calibrate_delayed)
-        menu.addAction("Nu zoeken naar telefoon", lambda: self.link.rescan())
-        menu.addAction("Instellingen…", self.show_window)
+        menu.addAction("Calibrate neutral position", self.calibrate)
+        menu.addAction("Look for phone now", lambda: self.link.rescan())
+        menu.addAction("Settings…", self.show_window)
         menu.addSeparator()
-        menu.addAction("Afsluiten", self.quit)
+        menu.addAction("Quit", self.quit)
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(
             lambda reason: self.show_window() if reason == QSystemTrayIcon.Trigger else None)
@@ -251,8 +299,6 @@ class Controller:
 
         self.save_timer = QTimer(singleShot=True, interval=500)
         self.save_timer.timeout.connect(lambda: config.save(self.cfg))
-        self.cal_timer = QTimer(interval=1000)
-        self.cal_timer.timeout.connect(self._cal_step)
 
         self.timer = QTimer(timerType=Qt.PreciseTimer, interval=TICK_MS)
         self.timer.timeout.connect(self._tick)
@@ -262,8 +308,9 @@ class Controller:
         if self.backend is None:
             self.tray.showMessage("Phonavigator", self.backend_status, QSystemTrayIcon.Warning)
 
-    # Aangeroepen vanuit de BLE-thread
-    def _on_sample(self, q, t):
+    # Called from the BLE thread, for every packet
+    def _on_sample(self, q, peak, t):
+        self.taps.feed(peak, t)
         with self._sample_lock:
             self._sample = (q, t)
 
@@ -285,8 +332,10 @@ class Controller:
             s = self._sample
         if s:
             self.mapper.feed(*s)
+        if self.taps.due(now):
+            self.calibrate()
         values = self.mapper.compute(now, dt)
-        if self.paused:
+        if self.paused or now < self.taps.mute_until:
             values = [0] * 6
         self.values = values
         if self.backend:
@@ -302,28 +351,12 @@ class Controller:
         if self.window and self.window.isVisible() and self._n % 3 == 0:
             self.window.refresh(values)
 
-    def calibrate_delayed(self):
-        # Even tijd om de muis los te laten en de telefoon in de prettige stand te zetten.
-        self._cal_countdown = 2
-        self._cal_step()
-        self.cal_timer.start()
-
-    def _cal_step(self):
-        if self._cal_countdown > 0:
-            self._set_cal_text(f"Kalibreren over {self._cal_countdown}…")
-            self._cal_countdown -= 1
-            return
-        self.cal_timer.stop()
+    def calibrate(self):
         if self.mapper.calibrate():
             config.save(self.cfg)
-            self.tray.showMessage("Phonavigator", "Nulstand opgeslagen", QSystemTrayIcon.Information, 1500)
+            self.tray.showMessage("Phonavigator", "Neutral position saved", QSystemTrayIcon.Information, 1500)
         else:
-            self.tray.showMessage("Phonavigator", "Geen data van de telefoon", QSystemTrayIcon.Warning)
-        self._set_cal_text("Nulstand kalibreren")
-
-    def _set_cal_text(self, text):
-        if self.window:
-            self.window.cal_btn.setText(text)
+            self.tray.showMessage("Phonavigator", "No data from the phone", QSystemTrayIcon.Warning)
 
     def save_later(self):
         self.save_timer.start()
@@ -350,10 +383,10 @@ def main():
     app.setDesktopFileName("phonavigator")
     app.setQuitOnLastWindowClosed(False)
     if not QSystemTrayIcon.isSystemTrayAvailable():
-        QMessageBox.critical(None, "Phonavigator", "Geen systeemvak beschikbaar.")
+        QMessageBox.critical(None, "Phonavigator", "No system tray available.")
         return 1
     ctl = Controller(app)
-    # Ctrl+C in de terminal netjes afhandelen
+    # Handle Ctrl+C in the terminal cleanly
     signal.signal(signal.SIGINT, lambda *_: ctl.quit())
     ctl._sigtimer = QTimer(interval=250)
     ctl._sigtimer.timeout.connect(lambda: None)
