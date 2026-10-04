@@ -37,7 +37,7 @@ class MainActivity : Activity() {
             textSize = 14f
             text = "Stand the phone upright on its charging-port edge. Tilting and twisting " +
                 "rotate the model; laying the phone flat pauses. Double-tap the phone on the " +
-                "desk to make the current position neutral. The screen may be off."
+                "desk to make the current position neutral (if enabled in the tray). The screen may be off."
         }
         detailsView = TextView(this).apply { textSize = 14f }
         logView = TextView(this).apply {

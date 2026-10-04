@@ -2,8 +2,8 @@
 
 A poor man's 3D mouse: your phone, standing upright on its charging-port edge on the desk, in
 your hand. **Tilt and twist to rotate the model** (rate control, like a SpaceMouse); the scroll
-wheel keeps zooming. Lay the phone down to pause, double-tap it on the desk to make the current
-position neutral. The screen may be off.
+wheel keeps zooming. Lay the phone down to pause; optionally, double-tap it on the desk to make the
+current position neutral. The screen may be off.
 
 ```
 Android app ──BLE GATT──▶ tray app ──uinput──▶ spacenavd ──▶ FreeCAD / Blender / TopSolid (Wine) / …
@@ -38,7 +38,8 @@ backup) and restarts Bluetooth.
 ## Use
 
 1. Hold the phone upright; the tray connects by itself.
-2. *Calibrate neutral position* (tray menu or settings), or double-tap the phone on the desk.
+2. *Calibrate neutral position* (tray menu or settings), or, when enabled in the settings,
+   double-tap the phone on the desk.
 3. Per movement: target axis, invert, deadzone, angle for full speed, curve. Changes apply
    immediately.
 
