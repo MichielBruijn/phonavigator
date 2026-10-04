@@ -92,13 +92,14 @@ class BleLink(QObject):
         self.status.emit("Connection lost")
 
     async def _watch(self, client, gone):
-        """Stay connected until stopped or disconnected; repair a silent subscription.
+        """Stay connected until stopped or disconnected; reconnect on a silent subscription.
 
         When the phone app restarts while the link stays up, the new app instance has no
         subscribers, but BlueZ keeps its CCCD state for a paired phone and thinks it is still
-        subscribed. Data then simply stops: subscribe again, and reconnect if that fails.
+        subscribed: data simply stops. Reconnecting fixes that. Re-subscribing on the same
+        connection is avoided on purpose: the characteristic objects may just have been
+        replaced, and that crashed bluetoothd 5.85 once on the following disconnect.
         """
-        resubscribed = False
         while not (self._stop.is_set() or gone.is_set()):
             try:
                 await asyncio.wait_for(gone.wait(), SILENCE_CHECK)
@@ -106,20 +107,9 @@ class BleLink(QObject):
                 pass
             if self._stop.is_set() or gone.is_set():
                 return
-            if time.monotonic() - self._last_packet < SILENT_AFTER:
-                resubscribed = False
-                continue
-            if resubscribed:
+            if time.monotonic() - self._last_packet > SILENT_AFTER:
                 self.status.emit("Phone sends no data, reconnecting")
                 return  # leaving the async-with disconnects
-            self.status.emit("Phone sends no data, subscribing again")
-            try:
-                await client.stop_notify(protocol.ORIENTATION_UUID)
-            except Exception:
-                pass
-            await client.start_notify(protocol.ORIENTATION_UUID, self._notify)
-            self._last_packet = time.monotonic()
-            resubscribed = True
 
     def _notify(self, _char, data: bytearray):
         pkt = protocol.parse(bytes(data))
