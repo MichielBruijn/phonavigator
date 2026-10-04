@@ -18,6 +18,7 @@ import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.hardware.Sensor
@@ -71,6 +72,16 @@ class NavService : Service(), SensorEventListener {
         /** Called on the main thread; MainActivity hooks in here. */
         var statusListener: (() -> Unit)? = null
 
+        private const val PREFS = "nav"
+        private const val KEY_RUNNING = "running"
+
+        /** Whether the user left the service running; survives updates. */
+        fun wantsRunning(ctx: Context) =
+            ctx.getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_RUNNING, false)
+
+        private fun setWantsRunning(ctx: Context, on: Boolean) =
+            ctx.getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(KEY_RUNNING, on).apply()
+
         private val mainHandler = Handler(Looper.getMainLooper())
         private val timeFmt = SimpleDateFormat("HH:mm:ss", Locale.ROOT)
 
@@ -116,11 +127,13 @@ class NavService : Service(), SensorEventListener {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            setWantsRunning(this, false)
             stopSelf()
             return START_NOT_STICKY
         }
         if (running) return START_STICKY
         running = true
+        setWantsRunning(this, true)
         synchronized(log) { log.clear() }
         event("Service started")
 

@@ -55,7 +55,20 @@ class MainActivity : Activity() {
             addView(help, lp(pad))
             addView(detailsView, lp(pad))
             addView(logView, lp(pad / 2))
-        }.let { android.widget.ScrollView(this).apply { addView(it) } })
+        }.let { content ->
+            android.widget.ScrollView(this).apply {
+                addView(content)
+                // Android 15 draws edge to edge: keep the content clear of the system bars.
+                setOnApplyWindowInsetsListener { v, insets ->
+                    if (Build.VERSION.SDK_INT >= 30) {
+                        val bars = insets.getInsets(android.view.WindowInsets.Type.systemBars() or
+                            android.view.WindowInsets.Type.displayCutout())
+                        v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+                    }
+                    insets
+                }
+            }
+        })
     }
 
     private fun lp(top: Int) = LinearLayout.LayoutParams(

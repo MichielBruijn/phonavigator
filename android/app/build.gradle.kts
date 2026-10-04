@@ -11,8 +11,8 @@ android {
         applicationId = "nu.bruijn.phonavigator"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.2.1"
+        versionCode = 7
+        versionName = "0.2.3"
     }
 
     // Release key lives outside the repo; without it the release build is unsigned.
