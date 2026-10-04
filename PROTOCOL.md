@@ -1,7 +1,12 @@
 # Phonavigator BLE-protocol (v1)
 
-De telefoon is GATT-**server** (peripheral) en adverteert de service-UUID; de
-computer is central en abonneert zich op notificaties.
+De telefoon is GATT-**server** (peripheral); de computer is central en abonneert
+zich op notificaties.
+
+Advertentie: **service data** onder de service-UUID (1 byte: protocolversie, nu 1);
+de scan response bevat de service-UUID als UUID-lijst. Zoek op beide: BlueZ negeert
+geadverteerde UUID-lijsten van een gekoppeld apparaat waarvan de services al bekend
+zijn, maar werkt service data altijd bij.
 
 | | UUID |
 |---|---|

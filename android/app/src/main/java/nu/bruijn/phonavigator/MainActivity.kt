@@ -18,6 +18,8 @@ import android.widget.TextView
 class MainActivity : Activity() {
 
     private lateinit var statusView: TextView
+    private lateinit var detailsView: TextView
+    private lateinit var logView: TextView
     private lateinit var toggleButton: Button
     private lateinit var batteryButton: Button
 
@@ -28,14 +30,19 @@ class MainActivity : Activity() {
         statusView = TextView(this).apply { textSize = 18f; gravity = Gravity.CENTER }
         toggleButton = Button(this).apply { setOnClickListener { toggle() } }
         batteryButton = Button(this).apply {
-            text = "Accubeperking uitzetten"
+            text = "Disable battery optimization"
             setOnClickListener { requestBatteryExemption() }
         }
         val help = TextView(this).apply {
             textSize = 14f
-            text = "Zet de telefoon rechtop op de kant van de laadpoort en kalibreer de " +
-                "nulstand in de tray-app. Kantelen en draaien sturen het model; " +
-                "plat neerleggen = pauze. Het scherm mag uit."
+            text = "Stand the phone upright on its charging-port edge and calibrate the " +
+                "neutral position in the tray app. Tilting and twisting rotate the model; " +
+                "laying the phone flat pauses. The screen may be off."
+        }
+        detailsView = TextView(this).apply { textSize = 14f }
+        logView = TextView(this).apply {
+            textSize = 12f
+            typeface = android.graphics.Typeface.MONOSPACE
         }
 
         setContentView(LinearLayout(this).apply {
@@ -46,7 +53,9 @@ class MainActivity : Activity() {
             addView(toggleButton, lp(pad))
             addView(batteryButton, lp(pad / 2))
             addView(help, lp(pad))
-        })
+            addView(detailsView, lp(pad))
+            addView(logView, lp(pad / 2))
+        }.let { android.widget.ScrollView(this).apply { addView(it) } })
     }
 
     private fun lp(top: Int) = LinearLayout.LayoutParams(
@@ -66,7 +75,9 @@ class MainActivity : Activity() {
 
     private fun render() {
         statusView.text = NavService.status
-        toggleButton.text = if (NavService.running) "Stoppen" else "Starten"
+        detailsView.text = NavService.details
+        logView.text = NavService.logText
+        toggleButton.text = if (NavService.running) "Stop" else "Start"
         batteryButton.isEnabled = !isBatteryExempt()
     }
 
@@ -85,11 +96,11 @@ class MainActivity : Activity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        // Notificaties zijn optioneel; Bluetooth niet.
+        // Notifications are optional; Bluetooth is not.
         val btOk = requiredPermissions()
             .filter { it != Manifest.permission.POST_NOTIFICATIONS }
             .all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
-        if (btOk) startNav() else statusView.text = "Zonder Bluetooth-toestemming gaat het niet"
+        if (btOk) startNav() else statusView.text = "Bluetooth permission is required"
     }
 
     private fun startNav() {
@@ -108,7 +119,7 @@ class MainActivity : Activity() {
     private fun isBatteryExempt() =
         getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
 
-    @SuppressLint("BatteryLife") // sideload-app; Play-beleid niet van toepassing
+    @SuppressLint("BatteryLife") // sideloaded app; Play policy does not apply
     private fun requestBatteryExemption() {
         startActivity(
             Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))

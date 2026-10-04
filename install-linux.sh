@@ -12,6 +12,21 @@ echo 'KERNEL=="uinput", SUBSYSTEM=="misc", OPTIONS+="static_node=uinput", TAG+="
 sudo udevadm control --reload
 sudo udevadm trigger --name-match=uinput
 
+# A phone that is also paired over classic Bluetooth is otherwise connected over BR/EDR,
+# where the GATT service is missing; the tray then sets PreferredBearer=le, which BlueZ
+# only exposes with Experimental enabled.
+CONF=/etc/bluetooth/main.conf
+if [ -f "$CONF" ] && ! grep -q '^Experimental *= *true' "$CONF"; then
+    sudo cp -a "$CONF" "$CONF.bak-$(date +%Y%m%d-%H%M%S)"
+    if grep -q '^#\?Experimental *=' "$CONF"; then
+        sudo sed -i 's/^#\?Experimental *=.*/Experimental = true/' "$CONF"
+    else
+        sudo sed -i 's/^\[General\]/[General]\nExperimental = true/' "$CONF"
+    fi
+    echo "Restarting bluetooth (Bluetooth devices reconnect in a few seconds)"
+    sudo systemctl restart bluetooth
+fi
+
 mkdir -p ~/.local/bin ~/.local/share/applications ~/.local/share/icons/hicolor/scalable/apps ~/.config/autostart
 cat > ~/.local/bin/phonavigator <<EOS
 #!/bin/sh

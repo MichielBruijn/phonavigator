@@ -11,7 +11,7 @@ import time
 from bleak import BleakClient, BleakScanner
 from PySide6.QtCore import QObject, Signal
 
-from . import protocol
+from . import bluez, protocol
 
 
 class BleLink(QObject):
@@ -67,14 +67,17 @@ class BleLink(QObject):
         """True als er een telefoon gevonden is (ook als de verbinding daarna wegviel)."""
         self.status.emit("Zoeken naar telefoon…")
         dev = await BleakScanner.find_device_by_filter(
-            lambda d, ad: protocol.SERVICE_UUID in (u.lower() for u in ad.service_uuids),
+            lambda d, ad: protocol.advertises(ad.service_uuids, ad.service_data),
             timeout=10,
         )
         if dev is None:
             return False
+        warning = await bluez.prefer_le(dev)
         self.status.emit(f"Verbinden met {dev.name or dev.address}…")
         gone = asyncio.Event()
         async with BleakClient(dev, disconnected_callback=lambda _c: gone.set()) as client:
+            if client.services.get_characteristic(protocol.ORIENTATION_UUID) is None:
+                raise RuntimeError(warning or "Phonavigator service not found on phone")
             await client.start_notify(protocol.ORIENTATION_UUID, self._notify)
             self.status.emit(f"Verbonden met {dev.name or dev.address}")
             self.connected.emit(True)

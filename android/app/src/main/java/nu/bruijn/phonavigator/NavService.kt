@@ -35,14 +35,17 @@ import android.os.SystemClock
 import android.util.Log
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.math.sqrt
 
 /**
- * Leest de oriëntatie (quaternion) en stuurt die als BLE-notify naar de tray-app.
- * Bewust dom: kalibratie, deadzone en mapping gebeuren allemaal op de computer.
- * Zie PROTOCOL.md voor het pakketformaat.
+ * Reads the orientation (quaternion) and sends it as a BLE notification to the tray app.
+ * Deliberately dumb: calibration, deadzone and mapping all happen on the computer.
+ * See PROTOCOL.md for the packet format.
  */
-@SuppressLint("MissingPermission") // MainActivity vraagt de permissies vóór het starten
+@SuppressLint("MissingPermission") // MainActivity requests the permissions before starting
 class NavService : Service(), SensorEventListener {
 
     companion object {
@@ -51,15 +54,32 @@ class NavService : Service(), SensorEventListener {
         private const val NOTIF_ID = 1
         const val ACTION_STOP = "nu.bruijn.phonavigator.STOP"
         private const val SAMPLE_US = 20_000 // 50 Hz
+        private const val LOG_LINES = 12
 
         @Volatile var running = false
             private set
-        @Volatile var status = "Gestopt"
+        /** One-line summary for the notification and the big status label. */
+        @Volatile var status = "Stopped"
             private set
-        /** Wordt op de main thread aangeroepen; MainActivity hangt hier aan. */
-        var statusListener: ((String) -> Unit)? = null
+        /** Multi-line details: advertising, links, subscribers, sensor rate. */
+        @Volatile var details = ""
+            private set
+        private val log = ArrayDeque<String>()
+        val logText: String get() = synchronized(log) { log.joinToString("\n") }
+
+        /** Called on the main thread; MainActivity hooks in here. */
+        var statusListener: (() -> Unit)? = null
 
         private val mainHandler = Handler(Looper.getMainLooper())
+        private val timeFmt = SimpleDateFormat("HH:mm:ss", Locale.ROOT)
+
+        fun event(msg: String) {
+            Log.i(TAG, msg)
+            synchronized(log) {
+                log.addFirst("${timeFmt.format(Date())}  $msg")
+                while (log.size > LOG_LINES) log.removeLast()
+            }
+        }
     }
 
     private lateinit var sensorManager: SensorManager
@@ -68,19 +88,25 @@ class NavService : Service(), SensorEventListener {
     private var wakeLock: PowerManager.WakeLock? = null
     private var gattServer: BluetoothGattServer? = null
     private var orientChar: BluetoothGattCharacteristic? = null
-    private var advertising = false
     private var usingMagnetometer = false
 
-    // Notify-coalescing: nooit meer dan één notify per verbinding onderweg,
-    // alleen het nieuwste pakket telt (het is een toestand, geen event).
+    // "off" | "starting" | "on" | "failed: ..."
+    @Volatile private var advState = "off"
+
+    // Notify coalescing: never more than one notification in flight per link,
+    // only the newest packet matters (it is a state, not an event).
     private val lock = Any()
     private val subscribers = mutableSetOf<BluetoothDevice>()
-    private val connected = mutableSetOf<BluetoothDevice>()
+    private val links = mutableSetOf<BluetoothDevice>()
     private var inFlight = 0
     private var inFlightSince = 0L
     private var pending: ByteArray? = null
     private var lastPacket = ByteArray(Protocol.PACKET_SIZE)
     private var seq = 0
+
+    private var rateCount = 0
+    private var rateSince = 0L
+    @Volatile private var sensorHz = 0
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -91,6 +117,8 @@ class NavService : Service(), SensorEventListener {
         }
         if (running) return START_STICKY
         running = true
+        synchronized(log) { log.clear() }
+        event("Service started")
 
         startInForeground()
         sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
@@ -101,11 +129,12 @@ class NavService : Service(), SensorEventListener {
             .apply { acquire() }
 
         if (!startSensor()) {
-            setStatus("Geen oriëntatiesensor gevonden")
+            event("No orientation sensor found")
             stopSelf()
             return START_NOT_STICKY
         }
         startGattServer()
+        refreshStatus()
         return START_STICKY
     }
 
@@ -117,17 +146,21 @@ class NavService : Service(), SensorEventListener {
         gattServer?.close()
         gattServer = null
         wakeLock?.let { if (it.isHeld) it.release() }
-        setStatus("Gestopt")
+        event("Service stopped")
+        status = "Stopped"
+        details = ""
+        mainHandler.post { statusListener?.invoke() }
         super.onDestroy()
     }
 
     // --- Sensor ---
 
     private fun startSensor(): Boolean {
-        // GAME_ROTATION_VECTOR: gyro + accelerometer, geen magnetometer (bureaulampen, schroeven).
+        // GAME_ROTATION_VECTOR: gyro + accelerometer, no magnetometer (desk lamps, screws).
         val sensor = sensorManager.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
             ?: sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)?.also { usingMagnetometer = true }
             ?: return false
+        event("Sensor: ${sensor.name}")
         val thread = HandlerThread("sensor").apply { start() }
         sensorThread = thread
         sensorManager.registerListener(this, sensor, SAMPLE_US, Handler(thread.looper))
@@ -150,9 +183,18 @@ class NavService : Service(), SensorEventListener {
         synchronized(lock) {
             lastPacket = pkt
             pending = pkt
-            // Vangnet voor een notify-callback die nooit komt.
+            // Safety net for a notification callback that never arrives.
             if (inFlight > 0 && SystemClock.elapsedRealtime() - inFlightSince > 500) inFlight = 0
             if (inFlight == 0) sendPendingLocked()
+        }
+
+        val now = SystemClock.elapsedRealtime()
+        rateCount++
+        if (now - rateSince >= 1000) {
+            sensorHz = (rateCount * 1000 / (now - rateSince).coerceAtLeast(1)).toInt()
+            rateCount = 0
+            rateSince = now
+            refreshStatus()
         }
     }
 
@@ -163,11 +205,13 @@ class NavService : Service(), SensorEventListener {
     private fun startGattServer() {
         val adapter = bluetoothManager.adapter
         if (adapter == null || !adapter.isEnabled) {
-            setStatus("Bluetooth staat uit")
+            event("Bluetooth is off")
+            advState = "failed: Bluetooth is off"
             return
         }
         val server = bluetoothManager.openGattServer(this, gattCallback) ?: run {
-            setStatus("GATT-server starten mislukt")
+            event("Could not open GATT server")
+            advState = "failed: no GATT server"
             return
         }
         gattServer = server
@@ -186,12 +230,14 @@ class NavService : Service(), SensorEventListener {
         orientChar = ch
         val svc = BluetoothGattService(Protocol.SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY)
         svc.addCharacteristic(ch)
-        server.addService(svc) // adverteren pas in onServiceAdded
+        advState = "starting"
+        server.addService(svc) // advertising starts in onServiceAdded
     }
 
-    private fun startAdvertising(withName: Boolean = true) {
+    private fun startAdvertising() {
         val advertiser = bluetoothManager.adapter?.bluetoothLeAdvertiser ?: run {
-            setStatus("Telefoon kan niet adverteren via BLE")
+            event("Phone cannot advertise over BLE")
+            advState = "failed: not supported"
             return
         }
         val settings = AdvertiseSettings.Builder()
@@ -200,53 +246,77 @@ class NavService : Service(), SensorEventListener {
             .setConnectable(true)
             .setTimeout(0)
             .build()
+        // Service data rather than (only) a UUID list: BlueZ ignores advertised UUIDs of a
+        // bonded device whose services it already knows, but always updates service data.
         val data = AdvertiseData.Builder()
+            .addServiceData(ParcelUuid(Protocol.SERVICE_UUID), byteArrayOf(Protocol.VERSION))
+            .build()
+        val scanResponse = AdvertiseData.Builder()
             .addServiceUuid(ParcelUuid(Protocol.SERVICE_UUID))
             .build()
-        val scanResponse = AdvertiseData.Builder().setIncludeDeviceName(withName).build()
+        advState = "starting"
         advertiser.startAdvertising(settings, data, scanResponse, advertiseCallback)
     }
 
     private fun stopAdvertising() {
-        if (!advertising) return
-        advertising = false
-        bluetoothManager.adapter?.bluetoothLeAdvertiser?.stopAdvertising(advertiseCallback)
+        if (advState == "on") {
+            bluetoothManager.adapter?.bluetoothLeAdvertiser?.stopAdvertising(advertiseCallback)
+        }
+        advState = "off"
     }
 
     private val advertiseCallback = object : AdvertiseCallback() {
         override fun onStartSuccess(settingsInEffect: AdvertiseSettings) {
-            advertising = true
+            advState = "on"
+            event("Advertising started")
             refreshStatus()
         }
 
         override fun onStartFailure(errorCode: Int) {
-            if (errorCode == ADVERTISE_FAILED_DATA_TOO_LARGE) {
-                // Lange toestelnaam past niet in de scan response: dan maar zonder naam.
-                startAdvertising(withName = false)
-            } else {
-                setStatus("Adverteren mislukt (code $errorCode)")
+            val reason = when (errorCode) {
+                ADVERTISE_FAILED_DATA_TOO_LARGE -> "data too large"
+                ADVERTISE_FAILED_TOO_MANY_ADVERTISERS -> "too many advertisers"
+                ADVERTISE_FAILED_ALREADY_STARTED -> "already started"
+                ADVERTISE_FAILED_INTERNAL_ERROR -> "internal error"
+                ADVERTISE_FAILED_FEATURE_UNSUPPORTED -> "not supported"
+                else -> "unknown"
             }
+            event("Advertising failed: $reason ($errorCode)")
+            advState = if (errorCode == ADVERTISE_FAILED_ALREADY_STARTED) "on" else "failed: $reason ($errorCode)"
+            refreshStatus()
         }
     }
 
     private val gattCallback = object : BluetoothGattServerCallback() {
         override fun onServiceAdded(status: Int, service: BluetoothGattService) {
-            if (status == BluetoothGatt.GATT_SUCCESS) startAdvertising()
-            else setStatus("GATT-service toevoegen mislukt ($status)")
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                event("GATT service added")
+                startAdvertising()
+            } else {
+                event("Adding GATT service failed ($status)")
+                advState = "failed: GATT service ($status)"
+                refreshStatus()
+            }
         }
 
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
+            // Android reports every Bluetooth link of the phone here (earbuds, watch, ...),
+            // not only links to our service.
+            val up = newState == BluetoothProfile.STATE_CONNECTED
+            val wasSubscriber: Boolean
             synchronized(lock) {
-                if (newState == BluetoothProfile.STATE_CONNECTED) {
-                    connected += device
+                wasSubscriber = device in subscribers
+                if (up) {
+                    links += device
                 } else {
-                    connected -= device
+                    links -= device
                     subscribers -= device
                     inFlight = 0
                 }
             }
-            if (newState != BluetoothProfile.STATE_CONNECTED && running) {
-                // Sommige stacks stoppen met adverteren na een verbinding; herstart voor de zekerheid.
+            event("Link ${if (up) "up" else "down"}: ${deviceLabel(device)}")
+            // Some stacks stop advertising after a connection; restart once our computer leaves.
+            if (!up && wasSubscriber && running) {
                 stopAdvertising()
                 startAdvertising()
             }
@@ -260,6 +330,7 @@ class NavService : Service(), SensorEventListener {
             if (descriptor.uuid == Protocol.CCCD_UUID) {
                 val enable = value != null && value.isNotEmpty() && (value[0].toInt() and 0x01) != 0
                 synchronized(lock) { if (enable) subscribers += device else subscribers -= device }
+                event("${if (enable) "Subscribed" else "Unsubscribed"}: ${deviceLabel(device)}")
                 refreshStatus()
             }
             if (responseNeeded) {
@@ -292,7 +363,13 @@ class NavService : Service(), SensorEventListener {
         }
     }
 
-    /** Aanroepen met [lock] vast. */
+    private fun deviceLabel(d: BluetoothDevice): String = try {
+        d.name?.let { "$it (${d.address})" } ?: d.address
+    } catch (_: SecurityException) {
+        d.address
+    }
+
+    /** Call with [lock] held. */
     private fun sendPendingLocked() {
         val pkt = pending ?: return
         val server = gattServer ?: return
@@ -309,33 +386,33 @@ class NavService : Service(), SensorEventListener {
                 @Suppress("DEPRECATION")
                 server.notifyCharacteristicChanged(dev, ch, false)
             }
-            if (ok) sent++ else Log.d(TAG, "notify naar ${dev.address} mislukt")
+            if (ok) sent++ else Log.d(TAG, "notify to ${dev.address} failed")
         }
         inFlight = sent
         inFlightSince = SystemClock.elapsedRealtime()
     }
 
-    // --- Status / notificatie ---
+    // --- Status / notification ---
 
     private fun refreshStatus() {
-        val (nConn, nSub) = synchronized(lock) { connected.size to subscribers.size }
-        setStatus(
-            when {
-                nSub > 0 -> "Verbonden, stuurt data"
-                nConn > 0 -> "Verbonden, wacht op abonnement"
-                advertising -> "Wacht op computer…"
-                else -> "Bezig met starten…"
-            }
-        )
-    }
-
-    private fun setStatus(s: String) {
-        status = s
-        Log.i(TAG, s)
+        val (nLinks, nSubs) = synchronized(lock) { links.size to subscribers.size }
+        val adv = advState
+        val newStatus = when {
+            nSubs > 0 -> "Streaming to computer"
+            adv == "on" -> "Waiting for computer…"
+            adv.startsWith("failed") -> "Not visible to computer"
+            else -> "Starting…"
+        }
+        details = "Advertising: $adv\n" +
+            "Bluetooth links (any device): $nLinks\n" +
+            "Subscribed computers: $nSubs\n" +
+            "Sensor: $sensorHz Hz" + if (usingMagnetometer) " (with magnetometer)" else ""
+        val changed = newStatus != status
+        status = newStatus
         mainHandler.post {
-            statusListener?.invoke(s)
-            if (running) {
-                getSystemService(NotificationManager::class.java).notify(NOTIF_ID, buildNotification(s))
+            statusListener?.invoke()
+            if (changed && running) {
+                getSystemService(NotificationManager::class.java).notify(NOTIF_ID, buildNotification(newStatus))
             }
         }
     }
@@ -345,7 +422,7 @@ class NavService : Service(), SensorEventListener {
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL_ID, "Phonavigator", NotificationManager.IMPORTANCE_LOW)
         )
-        val n = buildNotification("Bezig met starten…")
+        val n = buildNotification("Starting…")
         if (Build.VERSION.SDK_INT >= 29) {
             startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
         } else {
@@ -375,6 +452,7 @@ object Protocol {
     val SERVICE_UUID: java.util.UUID = java.util.UUID.fromString("7f3a0001-5c1e-4b8e-9d2a-6e0f1c9b4a10")
     val ORIENTATION_UUID: java.util.UUID = java.util.UUID.fromString("7f3a0002-5c1e-4b8e-9d2a-6e0f1c9b4a10")
     val CCCD_UUID: java.util.UUID = java.util.UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
-    const val PACKET_SIZE = 19 // past in de standaard ATT-MTU (20 bytes payload)
+    const val PACKET_SIZE = 19 // fits the default ATT MTU (20 bytes payload)
     const val FLAG_MAGNETOMETER = 0x01
+    const val VERSION: Byte = 1 // advertised as service data
 }

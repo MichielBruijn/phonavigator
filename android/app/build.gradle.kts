@@ -11,11 +11,11 @@ android {
         applicationId = "nu.bruijn.phonavigator"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 3
+        versionName = "0.1.2"
     }
 
-    // Release-sleutel staat buiten de repo; zonder sleutel bouwt release gewoon ongesigneerd.
+    // Release key lives outside the repo; without it the release build is unsigned.
     val keyDir = File(System.getProperty("user.home"), ".android-keystores")
     val keyFile = File(keyDir, "phonavigator-release.jks")
     if (keyFile.exists()) {
@@ -45,4 +45,4 @@ android {
     }
 }
 
-// Bewust geen AndroidX: platform-API's volstaan en de APK blijft klein.
+// No AndroidX on purpose: platform APIs suffice and the APK stays small.

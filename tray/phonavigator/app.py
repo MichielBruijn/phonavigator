@@ -268,6 +268,7 @@ class Controller:
             self._sample = (q, t)
 
     def _on_link_status(self, s):
+        print(s, flush=True)  # ends up in the journal when run as a service
         self.link_status = s
         self.status_action.setText(s)
 
