@@ -104,17 +104,20 @@ class Mapper:
 
         p, r = _tilts(up)
         p0, r0 = _tilts(up0)
+        twist = _wrap(heading - self.twist0)
+        # Signs chosen so the shipped defaults need no "invert": the top of the phone tilting
+        # towards the screen side and turning clockwise seen from above are positive.
         self.angles = {
-            "pitch": _wrap(p - p0),
+            "pitch": -_wrap(p - p0),
             "roll": _wrap(r - r0),
-            "twist": _wrap(heading - self.twist0),
+            "twist": -twist,
         }
 
         inputs = self.cfg["inputs"]
         if self.cfg["auto_recenter_twist"] and all(
             abs(self.angles[k]) < inputs[k]["deadzone"] for k in INPUTS
         ):
-            self.twist0 = _wrap(self.twist0 + self.angles["twist"] * min(1.0, dt / RECENTER_TAU))
+            self.twist0 = _wrap(self.twist0 + twist * min(1.0, dt / RECENTER_TAU))
 
         scale = FULL_SCALE * self.cfg["speed"]
         for name in INPUTS:

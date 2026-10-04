@@ -66,6 +66,14 @@ class MapperTest(unittest.TestCase):
         self.assertNotEqual(out["RZ"], 0)
         self.assertEqual((out["RX"], out["RY"]), (0, 0))
 
+    def test_sign_convention(self):
+        # pose(pitch=+) tilts the top towards the screen side; pose(yaw=+) is counter-clockwise from above.
+        self.step(pose())
+        self.step(pose(pitch=10))
+        self.assertGreater(self.m.angles["pitch"], 0)
+        self.step(pose(yaw=10))
+        self.assertLess(self.m.angles["twist"], 0)
+
     def test_full_scale_and_sign(self):
         self.step(pose())
         self.assertEqual(self.step(pose(pitch=30))["RX"], -self.step(pose(pitch=-30))["RX"])
