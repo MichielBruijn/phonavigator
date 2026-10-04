@@ -235,6 +235,7 @@ class Controller:
         self.pause_action.toggled.connect(self._set_paused)
         menu.addAction(self.pause_action)
         menu.addAction("Nulstand kalibreren (over 2 s)", self.calibrate_delayed)
+        menu.addAction("Nu zoeken naar telefoon", lambda: self.link.rescan())
         menu.addAction("Instellingen…", self.show_window)
         menu.addSeparator()
         menu.addAction("Afsluiten", self.quit)
