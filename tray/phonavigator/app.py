@@ -27,6 +27,7 @@ TARGET_LABELS = {
     "TX": "Move X", "TY": "Move Y", "TZ": "Move Z",
     "RX": "Rotate RX", "RY": "Rotate RY", "RZ": "Rotate RZ",
 }
+PORT_MODES = {"auto": "Auto", "down": "Down", "up": "Up (charging)"}
 TAP_MODES = {"off": "Off", "single": "Single tap", "double": "Double tap"}
 STATE_COLORS = {"nodata": "#8a8f98", "flat": "#e0a030", "active": "#3cb371", "paused": "#e0a030"}
 STATE_TEXT = {
@@ -169,6 +170,14 @@ class SettingsWindow(QWidget):
         pause.setValue(cfg["pause_angle"])
         pause.valueChanged.connect(lambda v: self._set_global("pause_angle", v))
         h.addWidget(pause)
+        h.addSpacing(16)
+        h.addWidget(QLabel("Charging port"))
+        port = QComboBox()
+        for k, label in PORT_MODES.items():
+            port.addItem(label, k)
+        port.setCurrentIndex(list(PORT_MODES).index(cfg["charging_port"]))
+        port.currentIndexChanged.connect(lambda _i: self._set_global("charging_port", port.currentData()))
+        h.addWidget(port)
         h.addSpacing(16)
         rec = QCheckBox("Let twist zero follow")
         rec.setToolTip("Corrects drift of the twist axis while the phone rests inside the deadzone")

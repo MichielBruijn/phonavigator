@@ -98,6 +98,28 @@ class MapperTest(unittest.TestCase):
         self.assertEqual(self.m.state, "active")
         self.assertEqual(out["RZ"], 0)
 
+    def test_charging_port_up_feels_the_same(self):
+        # Upside down = extra 180° about the screen normal, applied in the device frame.
+        def upside_down(**kw):
+            return qmul(pose(**kw), qaxis((0, 0, 1), 180))
+
+        normal = {}
+        self.step(pose(base_yaw=20))
+        for kw in ({"pitch": 15}, {"roll": 15}, {"yaw": 15}):
+            normal[str(kw)] = self.step(pose(base_yaw=20, **kw))
+        for mode in ("auto", "up"):
+            self.setUp()
+            self.cfg["charging_port"] = mode
+            self.step(upside_down(base_yaw=20))
+            self.assertEqual(self.m.state, "active")
+            for kw in ({"pitch": 15}, {"roll": 15}, {"yaw": 15}):
+                self.assertEqual(self.step(upside_down(base_yaw=20, **kw)), normal[str(kw)], (mode, kw))
+
+    def test_charging_port_down_fixed(self):
+        self.cfg["charging_port"] = "down"
+        self.step(qmul(pose(), qaxis((0, 0, 1), 180)))
+        self.assertEqual(self.m.state, "flat")
+
     def test_calibration(self):
         self.step(pose(pitch=10))
         self.assertTrue(self.m.calibrate())

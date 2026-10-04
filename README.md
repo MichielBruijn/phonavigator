@@ -43,6 +43,10 @@ backup) and restarts Bluetooth.
 3. Per movement: target axis, invert, deadzone, angle for full speed, curve. Changes apply
    immediately.
 
+Charging: hold the phone upside down (charging port up, screen facing the same way) and it feels
+the same. *Charging port* in the settings: *Auto* (default, decided each time the phone is picked
+up), *Down* or *Up (charging)*.
+
 The defaults assume the phone in the left hand with the screen facing right, and a Z-up CAD
 program: sideways tilt rotates about X, forward/back tilt about Y.
 

@@ -43,6 +43,12 @@ def _up_and_heading(q):
     return up, heading
 
 
+def _flip(up, heading):
+    """Phone held upside down (charging port up, screen facing the same way): undo the
+    180° turn about the screen normal, so all movements feel the same as port down."""
+    return [-up[0], -up[1], up[2]], _wrap(heading + 180.0)
+
+
 def _tilts(up):
     ux, uy, uz = up
     return math.degrees(math.atan2(uz, uy)), math.degrees(math.atan2(ux, uy))
@@ -60,6 +66,7 @@ class Mapper:
         self.q_time = None
         self.twist0 = None
         self.upright = False
+        self.flipped = False
         self.angles = {k: 0.0 for k in INPUTS}
         self.state = "nodata"  # nodata | flat | active
 
@@ -67,11 +74,25 @@ class Mapper:
         self.q = q
         self.q_time = now
 
+    def _pose(self):
+        """Up vector and heading in the 'port down' frame, following the charging-port setting."""
+        up, heading = _up_and_heading(self.q)
+        mode = self.cfg["charging_port"]
+        if mode == "auto":
+            # Decide only while not in use, so it never flips mid-movement.
+            flipped = up[1] < 0 if not self.upright else self.flipped
+        else:
+            flipped = mode == "up"
+        if flipped != self.flipped:
+            self.flipped = flipped
+            self.upright = False  # re-zero twist in the new frame
+        return _flip(up, heading) if flipped else (up, heading)
+
     def calibrate(self):
         """Make the current position neutral. False if there is no data yet."""
         if self.q is None:
             return False
-        up, heading = _up_and_heading(self.q)
+        up, heading = self._pose()
         self.cfg["neutral_up"] = up
         self.twist0 = heading
         self.upright = True
@@ -85,7 +106,7 @@ class Mapper:
             self.angles = dict.fromkeys(INPUTS, 0.0)
             return [0] * 6
 
-        up, heading = _up_and_heading(self.q)
+        up, heading = self._pose()
         up0 = self.cfg["neutral_up"]
         tilt = _angle_between(up, up0)
         pause = self.cfg["pause_angle"]

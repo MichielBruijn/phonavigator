@@ -19,6 +19,8 @@ DEFAULTS = {
     },
     "speed": 0.4,
     "pause_angle": 50.0,
+    # Which way the charging port points: "down" (standing on it), "up" (charging) or "auto"
+    "charging_port": "auto",
     "auto_recenter_twist": True,
     # Tap the phone on the desk to make the current position neutral: "off" | "single" | "double"
     "tap_calibrate": "off",
