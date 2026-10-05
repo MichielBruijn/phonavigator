@@ -463,7 +463,16 @@ def main():
     # One tray only: two would fight over the phone and create two virtual SpaceMice.
     if _hand_over_to_running_instance():
         return 0
+    fresh = not (config.config_dir() / "config.json").exists()
     ctl = Controller(app)
+    if fresh:
+        # The .deb cannot set up a per-user autostart: start at login on first run instead.
+        if sys.platform.startswith("linux") and not autostart.enabled():
+            try:
+                autostart.set_enabled(True)
+            except OSError:
+                pass
+        config.save(ctl.cfg)  # so a later "Start at login" off sticks
     ctl._instance_server = _listen_for_other_instances(ctl)
     # Handle Ctrl+C in the terminal cleanly
     signal.signal(signal.SIGINT, lambda *_: ctl.quit())

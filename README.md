@@ -27,11 +27,15 @@ Android app ──BLE GATT──▶ tray app ──uinput──▶ spacenavd ─
 
 ## Install
 
+Downloads are on the [releases page](https://github.com/MichielBruijn/phonavigator/releases).
+
 **Phone:** install the APK (only "allow unknown apps" is needed, no developer options; Play
 Protect may want *Install anyway*), open it, *Start*, and once *Disable battery optimization*.
 
-**Ubuntu:** `./install-linux.sh` (packages, udev rule for `/dev/uinput`, BlueZ setting,
-launcher and autostart), then `phonavigator --settings`.
+**Ubuntu/Debian:** `sudo apt install ./phonavigator_x.y.z_all.deb` (pulls in PySide6, bleak,
+evdev and spacenavd; installs udev rules for `/dev/uinput` and SpaceMouse hidraw and turns on
+BlueZ experimental mode), then start *Phonavigator* from the menu. From a source checkout:
+`./install-linux.sh`, or build the package with `linux/build-deb.sh`.
 
 **Windows:** run `Phonavigator-x.y.z-setup.exe`. It installs the tray (with *Start at login*)
 and puts its `TDxNavLib.dll` in System32/SysWOW64, where applications look for 3Dconnexion's.
@@ -41,8 +45,9 @@ and axes of the dll: `HKEY_CURRENT_USER\Software\Phonavigator\NavLib` (`Translat
 
 If the phone is also paired with the computer over classic Bluetooth, BlueZ would connect over
 BR/EDR, where the service is missing. The tray then asks BlueZ for LE (`PreferredBearer`), which
-needs `Experimental = true` in `/etc/bluetooth/main.conf`; the install script sets it (with a
-backup) and restarts Bluetooth.
+needs BlueZ's experimental mode: the .deb adds `--experimental` to bluetoothd with a systemd
+drop-in, the install script sets `Experimental = true` in `/etc/bluetooth/main.conf` (with a
+backup); both restart Bluetooth.
 
 ## Use
 
