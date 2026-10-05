@@ -54,6 +54,13 @@ Axis options in `/etc/spnavrc` (`swap-yz`, `invert-rot`, `invert-trans`, `axisma
 by the tray, so the same settings behave the same on every machine; spnavrc can stay tuned for a
 real SpaceMouse. Sensitivity and dead zone from spnavrc still apply.
 
+A real SpaceMouse keeps working next to the phone. spacenavd 1.3 only passes on the motion of
+its newest device, so the tray reads real SpaceMice itself and merges them into its own
+virtual one (which it recreates when you plug one in, to stay the newest). It reads them
+through evdev, or through hidraw when spacenavd grabs them (`grab = true`, the default); the
+installer gives access to both. Model-specific button remapping of spacenavd (SpaceMouse
+Pro, Enterprise) is lost while the tray runs.
+
 Twisting about the vertical axis has no absolute reference: its zero is reset every time the
 phone is picked up and slowly follows the phone inside the deadzone to remove drift.
 

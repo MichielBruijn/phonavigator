@@ -9,8 +9,15 @@ sudo apt-get install -y python3-pyside6.qtwidgets python3-pyside6.qtnetwork pyth
 # Let the logged-in user open /dev/uinput (same approach as Steam Input).
 RULE=/etc/udev/rules.d/70-phonavigator-uinput.rules
 echo 'KERNEL=="uinput", SUBSYSTEM=="misc", OPTIONS+="static_node=uinput", TAG+="uaccess"' | sudo tee "$RULE" >/dev/null
+# hidraw of real SpaceMice: read when spacenavd grabs their input device (see README).
+RULE=/etc/udev/rules.d/70-phonavigator-spacemouse.rules
+sudo tee "$RULE" >/dev/null <<'RULES'
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="256f", TAG+="uaccess"
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="c6[0-2]?", TAG+="uaccess"
+RULES
 sudo udevadm control --reload
 sudo udevadm trigger --name-match=uinput
+sudo udevadm trigger --subsystem-match=hidraw
 
 # A phone that is also paired over classic Bluetooth is otherwise connected over BR/EDR,
 # where the GATT service is missing; the tray then sets PreferredBearer=le, which BlueZ
