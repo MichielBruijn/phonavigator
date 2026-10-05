@@ -63,15 +63,24 @@ class BleLink(QObject):
             pause = 1 if found else min(30, 5 * idle)
             if not found:
                 self.status.emit(f"Phone not found, retrying in {pause} s")
-            self._wake.clear()
+            await self._pause(pause)
+
+    async def _pause(self, seconds):
+        """Wait between scans, but stop waiting as soon as BlueZ is connected to the phone."""
+        self._wake.clear()
+        end = time.monotonic() + seconds
+        while time.monotonic() < end and not self._stop.is_set():
             try:
-                await asyncio.wait_for(self._wake.wait(), pause)
+                await asyncio.wait_for(self._wake.wait(), min(1.0, end - time.monotonic()))
+                return
             except asyncio.TimeoutError:
                 pass
+            if await bluez.connected_phone():
+                return
 
     async def _session(self):
         self.status.emit("Looking for phone…")
-        dev = await BleakScanner.find_device_by_filter(
+        dev = await bluez.connected_phone() or await BleakScanner.find_device_by_filter(
             lambda d, ad: protocol.advertises(ad.service_uuids, ad.service_data),
             timeout=10,
         )

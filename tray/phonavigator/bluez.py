@@ -34,3 +34,41 @@ async def prefer_le(device) -> str | None:
         return ("Phone is paired with this computer: set 'Experimental = true' in "
                 "/etc/bluetooth/main.conf (or unpair the phone)")
     return None
+
+
+async def connected_phone():
+    """A phone running Phonavigator that BlueZ is already connected to, or None.
+
+    BlueZ often keeps a paired phone connected (the phone reconnects for audio, BlueZ keeps
+    the LE link), and a connected device shows up in no scan. Asking BlueZ costs no radio
+    time, so this can be polled freely.
+    """
+    if not sys.platform.startswith("linux"):
+        return None
+    from bleak.backends.device import BLEDevice
+    from dbus_fast import BusType, Message, MessageType
+    from dbus_fast.aio import MessageBus
+
+    from . import protocol
+
+    try:
+        bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+    except OSError:
+        return None
+    try:
+        reply = await bus.call(Message(
+            destination="org.bluez", path="/",
+            interface="org.freedesktop.DBus.ObjectManager", member="GetManagedObjects",
+        ))
+    finally:
+        bus.disconnect()
+    if reply.message_type == MessageType.ERROR:
+        return None
+    for path, ifaces in reply.body[0].items():
+        dev = ifaces.get("org.bluez.Device1")
+        if not dev:
+            continue
+        props = {k: v.value for k, v in dev.items()}
+        if props.get("Connected") and protocol.advertises(props.get("UUIDs", []), props.get("ServiceData", {})):
+            return BLEDevice(props["Address"], props.get("Name"), {"path": path, "props": props})
+    return None

@@ -4,7 +4,7 @@
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
-sudo apt-get install -y python3-pyside6.qtwidgets python3-bleak python3-evdev spacenavd
+sudo apt-get install -y python3-pyside6.qtwidgets python3-pyside6.qtnetwork python3-bleak python3-evdev spacenavd
 
 # Let the logged-in user open /dev/uinput (same approach as Steam Input).
 RULE=/etc/udev/rules.d/70-phonavigator-uinput.rules
@@ -43,6 +43,7 @@ Comment=Phone as a 3D mouse
 Exec=$HOME/.local/bin/phonavigator --settings
 Icon=phonavigator
 Categories=Utility;
+StartupNotify=false
 EOS
 sed 's/ --settings//' ~/.local/share/applications/phonavigator.desktop > ~/.config/autostart/phonavigator.desktop
 

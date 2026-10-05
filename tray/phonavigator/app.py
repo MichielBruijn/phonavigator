@@ -1,3 +1,4 @@
+import getpass
 import signal
 import sys
 import threading
@@ -14,6 +15,11 @@ from . import __version__, config, outputs
 from .ble import BleLink
 from .mapper import AXES, FULL_SCALE, Mapper
 from .tap import TapDetector
+
+try:
+    from PySide6.QtNetwork import QLocalServer, QLocalSocket
+except ImportError:  # e.g. python3-pyside6.qtnetwork not installed: no single-instance guard
+    QLocalServer = QLocalSocket = None
 
 TICK_MS = 16  # ~60 Hz to spacenavd
 
@@ -389,6 +395,39 @@ class Controller:
         self.app.quit()
 
 
+INSTANCE = f"phonavigator-{getpass.getuser()}"
+
+
+def _hand_over_to_running_instance() -> bool:
+    """True if another tray is running; it is asked to show its window instead."""
+    if QLocalSocket is None:
+        return False
+    sock = QLocalSocket()
+    sock.connectToServer(INSTANCE)
+    if not sock.waitForConnected(500):
+        return False
+    sock.write(b"show")
+    sock.waitForBytesWritten(500)
+    sock.disconnectFromServer()
+    return True
+
+
+def _listen_for_other_instances(ctl):
+    if QLocalServer is None:
+        return None
+    QLocalServer.removeServer(INSTANCE)  # stale socket after a crash
+    server = QLocalServer()
+    server.listen(INSTANCE)
+
+    def on_connection():
+        sock = server.nextPendingConnection()
+        sock.readyRead.connect(lambda: sock.readAll() and ctl.show_window())
+        sock.disconnected.connect(sock.deleteLater)
+
+    server.newConnection.connect(on_connection)
+    return server
+
+
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Phonavigator")
@@ -397,7 +436,11 @@ def main():
     if not QSystemTrayIcon.isSystemTrayAvailable():
         QMessageBox.critical(None, "Phonavigator", "No system tray available.")
         return 1
+    # One tray only: two would fight over the phone and create two virtual SpaceMice.
+    if _hand_over_to_running_instance():
+        return 0
     ctl = Controller(app)
+    ctl._instance_server = _listen_for_other_instances(ctl)
     # Handle Ctrl+C in the terminal cleanly
     signal.signal(signal.SIGINT, lambda *_: ctl.quit())
     ctl._sigtimer = QTimer(interval=250)
