@@ -6,9 +6,9 @@ wheel keeps zooming. Lay the phone down to pause; optionally, double-tap it on t
 current position neutral. The screen may be off.
 
 ```
-Android app ──BLE GATT──▶ tray app ──uinput──▶ spacenavd ──▶ FreeCAD / Blender / TopSolid (Wine) / …
-(quaternion, 50 Hz)       (calibration, deadzone,
-                           curve, axis mapping, taps)
+Android app ──BLE GATT──▶ tray app ──uinput──▶ spacenavd ──▶ FreeCAD / Blender / TopSolid (Wine) / …   Linux
+(quaternion, 50 Hz)       (calibration,  ─pipe──▶ TDxNavLib.dll in FreeCAD / TopSolid / …            Windows
+                           deadzone, curve, axis mapping, taps)
 ```
 
 ## Parts
@@ -18,8 +18,11 @@ Android app ──BLE GATT──▶ tray app ──uinput──▶ spacenavd ─
   sends them as BLE notifications. Deliberately dumb: all logic lives in the tray.
 - `tray/` — Python + PySide6 + bleak (all three cross-platform). Calibration, deadzone, response
   curve, axis mapping, drift correction and tap detection, writing to an output backend.
-  Backends live in `tray/phonavigator/outputs/`; for now only Linux (a virtual SpaceMouse Compact
-  via uinput, which spacenavd picks up by itself).
+  Backends live in `tray/phonavigator/outputs/`: Linux (a virtual SpaceMouse Compact via
+  uinput, which spacenavd picks up by itself) and Windows (a named pipe, see below).
+- `windows/` — Windows build: `navlib/` is a replacement for 3Dconnexion's navigation library
+  (`TDxNavLib.dll`, the interface FreeCAD, TopSolid and others use) that reads the tray's pipe and
+  moves the application's camera; plus the PyInstaller/Inno Setup scripts.
 - `PROTOCOL.md` — the BLE protocol, for e.g. an iOS sender.
 
 ## Install
@@ -29,6 +32,12 @@ Protect may want *Install anyway*), open it, *Start*, and once *Disable battery 
 
 **Ubuntu:** `./install-linux.sh` (packages, udev rule for `/dev/uinput`, BlueZ setting,
 launcher and autostart), then `phonavigator --settings`.
+
+**Windows:** run `Phonavigator-x.y.z-setup.exe`. It installs the tray (with *Start at login*)
+and puts its `TDxNavLib.dll` in System32/SysWOW64, where applications look for 3Dconnexion's.
+Because of that it cannot be installed next to 3Dconnexion's 3DxWare driver. Navigation speed
+and axes of the dll: `HKEY_CURRENT_USER\Software\Phonavigator\NavLib` (`TranslationSpeed`,
+`RotationSpeed`, `AxisMap`, `AxisSigns`, strings).
 
 If the phone is also paired with the computer over classic Bluetooth, BlueZ would connect over
 BR/EDR, where the service is missing. The tray then asks BlueZ for LE (`PreferredBearer`), which
@@ -75,6 +84,9 @@ phone is picked up and slowly follows the phone inside the deadzone to remove dr
 cd android && JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew assembleRelease
 cd tray && python3 -m unittest discover -s tests -t .
 ```
+
+Windows: `make -C windows/navlib` (MinGW-w64, on Linux) builds the dll; then, on Windows with
+Python 3.12+ and Inno Setup 6, `windows\build.ps1` builds the installer.
 
 Release signing uses `~/.android-keystores/phonavigator-release.jks` when it exists.
 

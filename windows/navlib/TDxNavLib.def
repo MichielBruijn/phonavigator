@@ -1,0 +1,6 @@
+LIBRARY TDxNavLib.dll
+EXPORTS
+    NlCreate
+    NlClose
+    NlReadValue
+    NlWriteValue

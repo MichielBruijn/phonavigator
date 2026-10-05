@@ -26,4 +26,8 @@ def create() -> Backend:
         from .linux_uinput import UinputBackend
 
         return UinputBackend()
+    if sys.platform == "win32":
+        from .windows_pipe import PipeBackend
+
+        return PipeBackend()
     raise BackendError(f"No output backend for {sys.platform} yet")
