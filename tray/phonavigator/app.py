@@ -4,8 +4,8 @@ import sys
 import threading
 import time
 
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
-from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, QUrl
+from PySide6.QtGui import QAction, QColor, QDesktopServices, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QGridLayout, QGroupBox, QHBoxLayout,
     QLabel, QMenu, QMessageBox, QPushButton, QSystemTrayIcon, QVBoxLayout, QWidget,
@@ -22,6 +22,7 @@ except ImportError:  # e.g. python3-pyside6.qtnetwork not installed: no single-i
     QLocalServer = QLocalSocket = None
 
 TICK_MS = 16  # ~60 Hz to spacenavd
+PROJECT_URL = "https://github.com/MichielBruijn/phonavigator"
 
 INPUT_LABELS = {
     "pitch": "Tilt forward/back",
@@ -235,7 +236,9 @@ class SettingsWindow(QWidget):
         cal.clicked.connect(ctl.calibrate)
         h.addWidget(cal)
         h.addStretch()
-        h.addWidget(QLabel(f"v{__version__}"))
+        link = QLabel(f'<a href="{PROJECT_URL}">Phonavigator v{__version__} on GitHub</a>')
+        link.setOpenExternalLinks(True)
+        h.addWidget(link)
         root.addLayout(h)
         self._peak_hold = 0.0
 
@@ -300,6 +303,7 @@ class Controller:
         menu.addAction("Calibrate neutral position", self.calibrate)
         menu.addAction("Look for phone now", lambda: self.link.rescan())
         menu.addAction("Settings…", self.show_window)
+        menu.addAction("Phonavigator on GitHub", lambda: QDesktopServices.openUrl(QUrl(PROJECT_URL)))
         menu.addSeparator()
         menu.addAction("Quit", self.quit)
         self.tray.setContextMenu(menu)
@@ -372,7 +376,6 @@ class Controller:
     def calibrate(self):
         if self.mapper.calibrate():
             config.save(self.cfg)
-            self.tray.showMessage("Phonavigator", "Neutral position saved", QSystemTrayIcon.Information, 1500)
         else:
             self.tray.showMessage("Phonavigator", "No data from the phone", QSystemTrayIcon.Warning)
 
