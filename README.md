@@ -65,3 +65,7 @@ cd tray && python3 -m unittest discover -s tests -t .
 ```
 
 Release signing uses `~/.android-keystores/phonavigator-release.jks` when it exists.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
