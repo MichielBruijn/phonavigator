@@ -52,7 +52,11 @@ Icon=phonavigator
 Categories=Utility;
 StartupNotify=false
 EOS
-sed 's/ --settings//' ~/.local/share/applications/phonavigator.desktop > ~/.config/autostart/phonavigator.desktop
+# Start at login: on for a fresh install; afterwards the tray setting decides.
+AUTOSTART=~/.config/autostart/phonavigator.desktop
+if [ -e "$AUTOSTART" ] || [ ! -e ~/.config/phonavigator/config.json ]; then
+    sed 's/ --settings//' ~/.local/share/applications/phonavigator.desktop > "$AUTOSTART"
+fi
 
 systemctl is-active --quiet spacenavd || echo "Note: spacenavd is not running (sudo apt install spacenavd)"
 echo "Done. Start with: phonavigator --settings"

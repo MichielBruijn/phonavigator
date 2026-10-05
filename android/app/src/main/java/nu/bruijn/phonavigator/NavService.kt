@@ -6,6 +6,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
@@ -18,8 +19,10 @@ import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -74,10 +77,18 @@ class NavService : Service(), SensorEventListener {
 
         private const val PREFS = "nav"
         private const val KEY_RUNNING = "running"
+        private const val KEY_AT_BOOT = "start_at_boot"
 
         /** Whether the user left the service running; survives updates. */
         fun wantsRunning(ctx: Context) =
             ctx.getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_RUNNING, false)
+
+        /** Start the service when the phone starts. */
+        fun startAtBoot(ctx: Context) =
+            ctx.getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_AT_BOOT, true)
+
+        fun setStartAtBoot(ctx: Context, on: Boolean) =
+            ctx.getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(KEY_AT_BOOT, on).apply()
 
         private fun setWantsRunning(ctx: Context, on: Boolean) =
             ctx.getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(KEY_RUNNING, on).apply()
@@ -97,6 +108,9 @@ class NavService : Service(), SensorEventListener {
     private lateinit var sensorManager: SensorManager
     private lateinit var bluetoothManager: BluetoothManager
     private var sensorThread: HandlerThread? = null
+    private var sensor: Sensor? = null
+    private var sensing = false
+    private val sensingLock = Any()
     private var wakeLock: PowerManager.WakeLock? = null
     private var gattServer: BluetoothGattServer? = null
     private var orientChar: BluetoothGattCharacteristic? = null
@@ -143,13 +157,16 @@ class NavService : Service(), SensorEventListener {
 
         wakeLock = (getSystemService(POWER_SERVICE) as PowerManager)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "phonavigator:sensor")
-            .apply { acquire() }
 
-        if (!startSensor()) {
+        if (!findSensor()) {
             event("No orientation sensor found")
             stopSelf()
             return START_NOT_STICKY
         }
+        val filter = IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(btReceiver, filter, RECEIVER_NOT_EXPORTED)
+        else registerReceiver(btReceiver, filter)
+        btReceiverOn = true
         startGattServer()
         refreshStatus()
         return START_STICKY
@@ -157,12 +174,13 @@ class NavService : Service(), SensorEventListener {
 
     override fun onDestroy() {
         running = false
-        sensorManager.unregisterListener(this)
+        if (btReceiverOn) unregisterReceiver(btReceiver)
+        btReceiverOn = false
+        setSensing(false)
         sensorThread?.quitSafely()
         stopAdvertising()
         gattServer?.close()
         gattServer = null
-        wakeLock?.let { if (it.isHeld) it.release() }
         event("Service stopped")
         status = "Stopped"
         details = ""
@@ -170,23 +188,64 @@ class NavService : Service(), SensorEventListener {
         super.onDestroy()
     }
 
+    // Bluetooth may still be off right after boot, and users switch it off and on.
+    private var btReceiverOn = false
+    private val btReceiver = object : BroadcastReceiver() {
+        override fun onReceive(ctx: Context, intent: Intent) {
+            when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1)) {
+                BluetoothAdapter.STATE_ON -> if (gattServer == null) {
+                    event("Bluetooth on")
+                    startGattServer()
+                }
+                BluetoothAdapter.STATE_TURNING_OFF -> {
+                    event("Bluetooth off")
+                    stopAdvertising()
+                    gattServer?.close()
+                    gattServer = null
+                    synchronized(lock) {
+                        subscribers.clear()
+                        links.clear()
+                        inFlight = 0
+                    }
+                    advState = "failed: Bluetooth is off"
+                    updateSensing()
+                }
+            }
+            refreshStatus()
+        }
+    }
+
     // --- Sensor ---
 
-    private fun startSensor(): Boolean {
+    private fun findSensor(): Boolean {
         // GAME_ROTATION_VECTOR: gyro + accelerometer, no magnetometer (desk lamps, screws).
-        val sensor = sensorManager.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
+        sensor = sensorManager.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
             ?: sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)?.also { usingMagnetometer = true }
             ?: return false
-        event("Sensor: ${sensor.name}")
-        val thread = HandlerThread("sensor").apply { start() }
-        sensorThread = thread
-        val handler = Handler(thread.looper)
-        sensorManager.registerListener(this, sensor, SAMPLE_US, handler)
-        sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let {
-            sensorManager.registerListener(this, it, ACCEL_US, handler)
-        } ?: event("No accelerometer: tap to calibrate unavailable")
+        event("Sensor: ${sensor!!.name}")
+        sensorThread = HandlerThread("sensor").apply { start() }
         return true
     }
+
+    /** Sensors and wake lock only while a computer listens: idle costs next to nothing. */
+    private fun setSensing(on: Boolean) = synchronized(sensingLock) {
+        if (on == sensing) return@synchronized
+        sensing = on
+        if (on) {
+            wakeLock?.acquire()
+            val handler = Handler(sensorThread!!.looper)
+            sensorManager.registerListener(this, sensor, SAMPLE_US, handler)
+            sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let {
+                sensorManager.registerListener(this, it, ACCEL_US, handler)
+            } ?: event("No accelerometer: tap to calibrate unavailable")
+        } else {
+            sensorManager.unregisterListener(this)
+            wakeLock?.let { if (it.isHeld) it.release() }
+            sensorHz = 0
+        }
+    }
+
+    private fun updateSensing() = setSensing(running && synchronized(lock) { subscribers.isNotEmpty() })
 
     override fun onSensorChanged(event: SensorEvent) {
         if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
@@ -357,6 +416,7 @@ class NavService : Service(), SensorEventListener {
                 }
             }
             event("Link ${if (up) "up" else "down"}: ${deviceLabel(device)}")
+            updateSensing()
             // Some stacks stop advertising after a connection; restart once our computer leaves.
             if (!up && wasSubscriber && running) {
                 stopAdvertising()
@@ -373,6 +433,7 @@ class NavService : Service(), SensorEventListener {
                 val enable = value != null && value.isNotEmpty() && (value[0].toInt() and 0x01) != 0
                 synchronized(lock) { if (enable) subscribers += device else subscribers -= device }
                 event("${if (enable) "Subscribed" else "Unsubscribed"}: ${deviceLabel(device)}")
+                updateSensing()
                 refreshStatus()
             }
             if (responseNeeded) {

@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QLabel, QMenu, QMessageBox, QPushButton, QSystemTrayIcon, QVBoxLayout, QWidget,
 )
 
-from . import __version__, config, outputs
+from . import __version__, autostart, config, outputs
 from .ble import BleLink
 from .mapper import AXES, FULL_SCALE, Mapper
 from .tap import TapDetector
@@ -191,6 +191,11 @@ class SettingsWindow(QWidget):
         rec.setChecked(cfg["auto_recenter_twist"])
         rec.toggled.connect(lambda v: self._set_global("auto_recenter_twist", v))
         h.addWidget(rec)
+        h.addSpacing(16)
+        login = QCheckBox("Start at login")
+        login.setChecked(autostart.enabled())
+        login.toggled.connect(self._set_autostart)
+        h.addWidget(login)
         h.addStretch()
         root.addWidget(g)
 
@@ -249,6 +254,12 @@ class SettingsWindow(QWidget):
     def _set_global(self, key, value):
         self.ctl.cfg[key] = value
         self.ctl.save_later()
+
+    def _set_autostart(self, on):
+        try:
+            autostart.set_enabled(on)
+        except OSError as ex:
+            QMessageBox.warning(self, "Phonavigator", f"Could not change autostart: {ex}")
 
     def _set_threshold(self, v):
         self._set_global("tap_threshold", v)

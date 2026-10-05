@@ -43,6 +43,11 @@ backup) and restarts Bluetooth.
 3. Per movement: target axis, invert, deadzone, angle for full speed, curve. Changes apply
    immediately.
 
+Both sides start by themselves: the tray at login (*Start at login* in the settings), the phone
+app when the phone starts (*Start when the phone starts* in the app). Both are on by default.
+While no computer is connected the phone only advertises; sensors and wake lock run only while
+streaming.
+
 Charging: hold the phone upside down (charging port up, screen facing the same way) and it feels
 the same. *Charging port* in the settings: *Auto* (default, decided each time the phone is picked
 up), *Down* or *Up (charging)*.

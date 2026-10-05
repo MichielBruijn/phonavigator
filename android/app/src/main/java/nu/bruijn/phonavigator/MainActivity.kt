@@ -12,6 +12,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.view.Gravity
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.widget.TextView
 
@@ -33,6 +34,11 @@ class MainActivity : Activity() {
             text = "Disable battery optimization"
             setOnClickListener { requestBatteryExemption() }
         }
+        val atBoot = CheckBox(this).apply {
+            text = "Start when the phone starts"
+            isChecked = NavService.startAtBoot(context)
+            setOnCheckedChangeListener { _, on -> NavService.setStartAtBoot(context, on) }
+        }
         val help = TextView(this).apply {
             textSize = 14f
             text = "Stand the phone upright on its charging-port edge (or hold it port up while " +
@@ -53,6 +59,7 @@ class MainActivity : Activity() {
             addView(statusView, lp(pad))
             addView(toggleButton, lp(pad))
             addView(batteryButton, lp(pad / 2))
+            addView(atBoot, lp(pad / 2))
             addView(help, lp(pad))
             addView(detailsView, lp(pad))
             addView(logView, lp(pad / 2))
