@@ -25,6 +25,7 @@ DEFAULTS = {
     # Tap the phone on the desk to make the current position neutral: "off" | "single" | "double"
     "tap_calibrate": "off",
     "tap_threshold": 15.0,  # m/s², high-pass peak
+    "start_minimized": True,  # start in the tray; --settings opens the window anyway
 }
 
 

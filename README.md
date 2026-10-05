@@ -54,6 +54,7 @@ backup) and restarts Bluetooth.
 
 Both sides start by themselves: the tray at login (*Start at login* in the settings), the phone
 app when the phone starts (*Start when the phone starts* in the app). Both are on by default.
+The tray starts in the system tray; untick *Start minimized* to open the settings window as well.
 While no computer is connected the phone only advertises; sensors and wake lock run only while
 streaming.
 

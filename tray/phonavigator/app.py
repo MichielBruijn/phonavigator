@@ -198,6 +198,12 @@ class SettingsWindow(QWidget):
         login.setChecked(autostart.enabled())
         login.toggled.connect(self._set_autostart)
         h.addWidget(login)
+        h.addSpacing(16)
+        mini = QCheckBox("Start minimized")
+        mini.setToolTip("Start in the tray without opening this window")
+        mini.setChecked(cfg["start_minimized"])
+        mini.toggled.connect(lambda v: self._set_global("start_minimized", v))
+        h.addWidget(mini)
         h.addStretch()
         root.addWidget(g)
 
@@ -464,6 +470,6 @@ def main():
     ctl._sigtimer = QTimer(interval=250)
     ctl._sigtimer.timeout.connect(lambda: None)
     ctl._sigtimer.start()
-    if "--settings" in sys.argv:
+    if "--settings" in sys.argv or not ctl.cfg["start_minimized"]:
         ctl.show_window()
     return app.exec()
