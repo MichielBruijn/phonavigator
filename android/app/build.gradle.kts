@@ -3,6 +3,10 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// The version lives with the tray, so the app, .deb and Windows setup share it.
+val versionPy = rootDir.resolve("../tray/phonavigator/__init__.py").readText()
+fun versionField(pattern: String) = Regex(pattern).find(versionPy)!!.groupValues[1]
+
 android {
     namespace = "nu.bruijn.phonavigator"
     compileSdk = 35
@@ -11,8 +15,8 @@ android {
         applicationId = "nu.bruijn.phonavigator"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10
-        versionName = "0.4.1"
+        versionCode = versionField("""VERSION_CODE = (\d+)""").toInt()
+        versionName = versionField("""__version__ = "(.*)"""")
     }
 
     // Release key lives outside the repo; without it the release build is unsigned.
