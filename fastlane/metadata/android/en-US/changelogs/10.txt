@@ -1,0 +1,4 @@
+* Pause while the proximity sensor is covered (pocket, face down)
+* Option to start when the phone starts
+* Sensors and wake lock only run while a computer is connected
+* Restart the Bluetooth service when Bluetooth is switched back on

@@ -1,0 +1,12 @@
+<p>A poor man's 3D mouse: stand your phone upright on its charging-port edge on the desk, hold it, and <b>tilt and twist it to rotate the model</b> in your CAD program, like a SpaceMouse (rate control).</p>
+
+<p>The app sends the phone's orientation over Bluetooth LE to the Phonavigator tray app on your computer, which does all the work: calibration, dead zone, response curve and axis mapping. The tray app shows up as a SpaceMouse to FreeCAD, Blender, TopSolid and other programs that support 3D mice.</p>
+
+<ul>
+<li>Works with the screen off</li>
+<li>Lay the phone down or put it in a pocket to pause</li>
+<li>Starts by itself when the phone starts (optional); sensors only run while a computer is connected</li>
+<li>No internet access, no accounts, no tracking</li>
+</ul>
+
+<p>Requires the tray app on the computer (Linux or Windows), see https://github.com/MichielBruijn/phonavigator</p>
