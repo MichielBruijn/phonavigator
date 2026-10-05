@@ -50,6 +50,10 @@ up), *Down* or *Up (charging)*.
 The defaults assume the phone in the left hand with the screen facing right, and a Z-up CAD
 program: sideways tilt rotates about X, forward/back tilt about Y.
 
+Axis options in `/etc/spnavrc` (`swap-yz`, `invert-rot`, `invert-trans`, `axismapN`) are undone
+by the tray, so the same settings behave the same on every machine; spnavrc can stay tuned for a
+real SpaceMouse. Sensitivity and dead zone from spnavrc still apply.
+
 Twisting about the vertical axis has no absolute reference: its zero is reset every time the
 phone is picked up and slowly follows the phone inside the deadzone to remove drift.
 

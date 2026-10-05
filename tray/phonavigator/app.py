@@ -257,7 +257,7 @@ class SettingsWindow(QWidget):
         self._peak_hold = max(self.ctl.taps.take_peak(), self._peak_hold * 0.85)
         self.tap_bar.set(self._peak_hold)
         self.status.setText(
-            f"<b>{STATE_TEXT[self.ctl.state()]}</b> · {self.ctl.link_status} · {self.ctl.backend_status}")
+            f"<b>{STATE_TEXT[self.ctl.state()]}</b> · {self.ctl.link_status} · {self.ctl.output_status()}")
 
 
 class Controller:
@@ -327,6 +327,9 @@ class Controller:
         print(s, flush=True)  # ends up in the journal when run as a service
         self.link_status = s
         self.status_action.setText(s)
+
+    def output_status(self):
+        return f"output: {self.backend.name}" if self.backend else self.backend_status
 
     def _set_paused(self, on):
         self.paused = on
