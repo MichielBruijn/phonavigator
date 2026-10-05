@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QLabel, QMenu, QMessageBox, QPushButton, QSystemTrayIcon, QVBoxLayout, QWidget,
 )
 
-from . import __version__, autostart, config, outputs
+from . import __version__, autostart, config, outputs, protocol
 from .ble import BleLink
 from .mapper import AXES, FULL_SCALE, Mapper
 from .tap import TapDetector
@@ -36,10 +36,12 @@ TARGET_LABELS = {
 }
 PORT_MODES = {"auto": "Auto", "down": "Down", "up": "Up (charging)"}
 TAP_MODES = {"off": "Off", "single": "Single tap", "double": "Double tap"}
-STATE_COLORS = {"nodata": "#8a8f98", "flat": "#e0a030", "active": "#3cb371", "paused": "#e0a030"}
+STATE_COLORS = {"nodata": "#8a8f98", "flat": "#e0a030", "covered": "#e0a030", "active": "#3cb371",
+                "paused": "#e0a030"}
 STATE_TEXT = {
     "nodata": "No data",
     "flat": "Paused (phone lying down)",
+    "covered": "Paused (proximity sensor covered)",
     "active": "Active",
     "paused": "Paused",
 }
@@ -339,10 +341,12 @@ class Controller:
             self.tray.showMessage("Phonavigator", self.backend_status, QSystemTrayIcon.Warning)
 
     # Called from the BLE thread, for every packet
-    def _on_sample(self, q, peak, t):
-        self.taps.feed(peak, t)
+    def _on_sample(self, q, peak, t, flags=0):
+        covered = bool(flags & protocol.FLAG_COVERED)
+        if not covered:  # no taps from a pocket
+            self.taps.feed(peak, t)
         with self._sample_lock:
-            self._sample = (q, t)
+            self._sample = (q, t, covered)
 
     def _on_link_status(self, s):
         print(s, flush=True)  # ends up in the journal when run as a service

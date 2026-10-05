@@ -2,7 +2,7 @@
 
 A poor man's 3D mouse: your phone, standing upright on its charging-port edge on the desk, in
 your hand. **Tilt and twist to rotate the model** (rate control, like a SpaceMouse); the scroll
-wheel keeps zooming. Lay the phone down to pause; optionally, double-tap it on the desk to make the
+wheel keeps zooming. Lay the phone down, put it in a pocket or face down (proximity sensor) to pause; optionally, double-tap it on the desk to make the
 current position neutral. The screen may be off.
 
 ```

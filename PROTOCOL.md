@@ -19,7 +19,7 @@ whose services it already knows, but always updates service data.
 |---|---|---|
 | 0 | u16 | sequence number (wraps) |
 | 2 | f32 ×4 | quaternion x, y, z, w |
-| 18 | u8 | flags: bit 0 = magnetometer used |
+| 18 | u8 | flags: bit 0 = magnetometer used, bit 1 = proximity sensor covered (pocket, face down): pause |
 | 19 | u8 | peak high-pass acceleration since the previous packet, 0.5 m/s² per step (tap detection) |
 
 v1 packets (19 bytes, no peak byte) are still accepted.

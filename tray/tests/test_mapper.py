@@ -43,10 +43,10 @@ class MapperTest(unittest.TestCase):
         self.m = Mapper(self.cfg)
         self.t = 0.0
 
-    def step(self, q, n=1):
+    def step(self, q, n=1, covered=False):
         for _ in range(n):
             self.t += 0.016
-            self.m.feed(q, self.t)
+            self.m.feed(q, self.t, covered)
             v = self.m.compute(self.t, 0.016)
         return dict(zip(("TX", "TY", "TZ", "RX", "RY", "RZ"), v))
 
@@ -95,6 +95,15 @@ class MapperTest(unittest.TestCase):
         self.assertEqual(self.m.state, "flat")
         # Picked up facing 60° elsewhere: that direction is the new zero.
         out = self.step(pose(base_yaw=60))
+        self.assertEqual(self.m.state, "active")
+        self.assertEqual(out["RZ"], 0)
+
+    def test_covered_pauses_and_resets_twist(self):
+        self.step(pose())
+        out = self.step(pose(pitch=15, yaw=30), covered=True)  # in a pocket, moving
+        self.assertEqual(self.m.state, "covered")
+        self.assertTrue(all(v == 0 for v in out.values()))
+        out = self.step(pose(base_yaw=45))  # out again, facing elsewhere: new twist zero
         self.assertEqual(self.m.state, "active")
         self.assertEqual(out["RZ"], 0)
 

@@ -130,6 +130,7 @@ class NavService : Service(), SensorEventListener {
     private var pending = false
     private val quat = FloatArray(4)
     private var peakAccel = 0f // m/s², kept until a packet is actually sent
+    @Volatile private var covered = false // proximity sensor: in a pocket or face down
     private var lastPacket = ByteArray(Protocol.PACKET_SIZE)
     private var seq = 0
 
@@ -238,8 +239,12 @@ class NavService : Service(), SensorEventListener {
             sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let {
                 sensorManager.registerListener(this, it, ACCEL_US, handler)
             } ?: event("No accelerometer: tap to calibrate unavailable")
+            sensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY)?.let {
+                sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL, handler)
+            }
         } else {
             sensorManager.unregisterListener(this)
+            covered = false
             wakeLock?.let { if (it.isHeld) it.release() }
             sensorHz = 0
         }
@@ -250,6 +255,13 @@ class NavService : Service(), SensorEventListener {
     override fun onSensorChanged(event: SensorEvent) {
         if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
             onAccel(event.values)
+            return
+        }
+        if (event.sensor.type == Sensor.TYPE_PROXIMITY) {
+            // Most proximity sensors are binary: 0 = near, maximumRange = far.
+            val near = event.values[0] < minOf(event.sensor.maximumRange, 3f)
+            if (near != covered) event(if (near) "Covered: paused" else "Uncovered")
+            covered = near
             return
         }
         val v = event.values
@@ -292,6 +304,7 @@ class NavService : Service(), SensorEventListener {
     private fun buildPacketLocked(): ByteArray {
         var flags = 0
         if (usingMagnetometer) flags = flags or Protocol.FLAG_MAGNETOMETER
+        if (covered) flags = flags or Protocol.FLAG_COVERED
         val peak = (peakAccel / Protocol.PEAK_UNIT).toInt().coerceIn(0, 255)
         return ByteBuffer.allocate(Protocol.PACKET_SIZE).order(ByteOrder.LITTLE_ENDIAN)
             .putShort((seq++ and 0xFFFF).toShort())
@@ -560,6 +573,7 @@ object Protocol {
     val CCCD_UUID: java.util.UUID = java.util.UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     const val PACKET_SIZE = 20 // exactly the default ATT MTU payload
     const val FLAG_MAGNETOMETER = 0x01
+    const val FLAG_COVERED = 0x02 // proximity sensor covered: the tray pauses
     const val PEAK_UNIT = 0.5f // m/s² per step of the peak byte
     const val VERSION: Byte = 2 // advertised as service data
 }

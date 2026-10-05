@@ -68,11 +68,13 @@ class Mapper:
         self.upright = False
         self.flipped = False
         self.angles = {k: 0.0 for k in INPUTS}
-        self.state = "nodata"  # nodata | flat | active
+        self.covered = False
+        self.state = "nodata"  # nodata | covered | flat | active
 
-    def feed(self, q, now):
+    def feed(self, q, now, covered=False):
         self.q = q
         self.q_time = now
+        self.covered = covered
 
     def _pose(self):
         """Up vector and heading in the 'port down' frame, following the charging-port setting."""
@@ -103,6 +105,12 @@ class Mapper:
         out = dict.fromkeys(AXES, 0.0)
         if self.q is None or now - self.q_time > STALE_AFTER:
             self.state = "nodata"
+            self.angles = dict.fromkeys(INPUTS, 0.0)
+            return [0] * 6
+
+        if self.covered:  # in a pocket or face down: pause, re-zero twist when picked up
+            self.upright = False
+            self.state = "covered"
             self.angles = dict.fromkeys(INPUTS, 0.0)
             return [0] * 6
 

@@ -8,6 +8,7 @@ ORIENTATION_UUID = "7f3a0002-5c1e-4b8e-9d2a-6e0f1c9b4a10"
 _V1 = struct.Struct("<H4fB")
 _V2 = struct.Struct("<H4fBB")
 FLAG_MAGNETOMETER = 0x01
+FLAG_COVERED = 0x02  # proximity sensor covered: pause
 PEAK_UNIT = 0.5  # m/s² per step of the peak byte
 
 

@@ -124,4 +124,4 @@ class BleLink(QObject):
         pkt = protocol.parse(bytes(data))
         if pkt:
             self._last_packet = time.monotonic()
-            self._on_sample(pkt[1], pkt[3], time.monotonic())
+            self._on_sample(pkt[1], pkt[3], time.monotonic(), pkt[2])
