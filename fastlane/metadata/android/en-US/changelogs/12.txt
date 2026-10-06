@@ -1,0 +1,1 @@
+* Version 0.5.4 of the tray app: waits for the system tray at login
