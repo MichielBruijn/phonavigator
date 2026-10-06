@@ -1,4 +1,5 @@
 import getpass
+import os
 import signal
 import sys
 import threading
@@ -452,14 +453,25 @@ def _listen_for_other_instances(ctl):
     return server
 
 
+TRAY_WAIT_TRIES = 20  # x 3 s
+
+
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Phonavigator")
     app.setDesktopFileName("phonavigator")
     app.setQuitOnLastWindowClosed(False)
     if not QSystemTrayIcon.isSystemTrayAvailable():
+        # At login the desktop's tray (GNOME: the AppIndicator extension) may not be up yet.
+        # Qt caches the answer, so wait in a fresh process.
+        tries = int(os.environ.get("PHONAVIGATOR_TRAY_WAIT", "0"))
+        if sys.platform.startswith("linux") and tries < TRAY_WAIT_TRIES:
+            time.sleep(3)
+            os.environ["PHONAVIGATOR_TRAY_WAIT"] = str(tries + 1)
+            os.execv(sys.executable, [sys.executable, "-m", "phonavigator", *sys.argv[1:]])
         QMessageBox.critical(None, "Phonavigator", "No system tray available.")
         return 1
+    os.environ.pop("PHONAVIGATOR_TRAY_WAIT", None)
     # One tray only: two would fight over the phone and create two virtual SpaceMice.
     if _hand_over_to_running_instance():
         return 0
