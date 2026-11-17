@@ -34,7 +34,9 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
             signingConfig = signingConfigs.findByName("release")
         }
     }
@@ -42,6 +44,12 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    // F-Droid: no Google-encrypted dependency metadata in the signing block.
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
     }
 
     kotlinOptions {

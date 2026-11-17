@@ -1,0 +1,1 @@
+* Smaller app: code shrinking (R8) enabled, no dependency metadata block
